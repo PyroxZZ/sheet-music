@@ -183,12 +183,12 @@ h1, h2, h3, p { margin: 0; }
 .field-ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); pointer-events: none; display: flex; }
 .field-ic .ic { width: 18px; height: 18px; stroke-width: 2.1; }
 .search-field { flex: 1; min-width: 0; }
-#search {
+#search, #f-q {
   width: 100%; height: var(--tap); padding: 0 12px 0 38px; border: 0; background: transparent; outline: none;
   font-size: var(--fs-body); color: var(--text); -webkit-appearance: none; appearance: none; border-radius: var(--radius);
 }
-#search::placeholder { color: var(--muted); }
-#search::-webkit-search-decoration { -webkit-appearance: none; }
+#search::placeholder, #f-q::placeholder { color: var(--muted); }
+#search::-webkit-search-decoration, #f-q::-webkit-search-decoration { -webkit-appearance: none; }
 .search-field:focus-within { box-shadow: 0 0 0 2px var(--accent-tint-strong); }
 .sort-field { flex: none; }
 #sort {
