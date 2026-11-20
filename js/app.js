@@ -4,6 +4,7 @@ import { loadPdf, makeThumbnail } from './pdf.js';
 import { analyzePdf } from './detect.js';
 import { openViewer, initViewer, scrollFromDetection } from './viewer.js';
 import { toast, promptText, confirmBox, menu, pickFolder, esc } from './ui.js';
+import { icon } from './icons.js';
 
 const $ = sel => document.querySelector(sel);
 
@@ -65,10 +66,11 @@ function countIn(folderId) {
 
 function render() {
   // Breadcrumbs
-  const crumbs = [`<button class="crumb" data-folder="">Library</button>`];
-  for (const f of folderPath(state.folderId)) crumbs.push(`<span class="sep">›</span><button class="crumb" data-folder="${f.id}">${esc(f.name)}</button>`);
+  const path = folderPath(state.folderId);
+  const crumbs = [`<button class="crumb" data-folder=""${path.length ? '' : ' aria-current="page"'}>${icon('library')}<span>Library</span></button>`];
+  path.forEach((f, i) => crumbs.push(`<span class="sep" aria-hidden="true">${icon('chevron-right')}</span><button class="crumb" data-folder="${f.id}"${i === path.length - 1 ? ' aria-current="page"' : ''}><span>${esc(f.name)}</span></button>`));
   $('#crumbs').innerHTML = crumbs.join('');
-  $('#crumbs').hidden = !!state.query;
+  $('#crumbs').hidden = !!state.query || !path.length;
 
   let folders, songs;
   const q = norm(state.query.trim());
@@ -82,35 +84,47 @@ function render() {
   folders = sortFolders(folders);
   songs = sortSongs(songs);
 
-  const pathLabel = id => folderPath(id).map(f => f.name).join(' › ') || 'Library';
-  const html = [];
-  for (const f of folders) {
+  const pathLabel = id => folderPath(id).map(f => f.name).join(' / ') || 'Library';
+  const folderCards = folders.map(f => {
     const n = countIn(f.id);
-    html.push(`
+    return `
       <div class="card folder" data-open-folder="${f.id}">
-        <div class="thumb folder-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2h8.4A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg></div>
+        <div class="folder-ic" aria-hidden="true">${icon('folder')}</div>
         <div class="meta"><div class="title">${esc(f.name)}</div>
           <div class="sub">${q ? esc(pathLabel(f.parentId)) + ' · ' : ''}${n} song${n === 1 ? '' : 's'}</div></div>
-        <button class="more" data-folder-menu="${f.id}" aria-label="Folder options">⋯</button>
-      </div>`);
-  }
-  for (const s of songs) {
+        <button class="more" data-folder-menu="${f.id}" aria-label="Folder options">${icon('more')}</button>
+      </div>`;
+  });
+  const songCards = songs.map(s => {
     const sc = s.scroll || {};
-    const info = [sc.bpm ? `${sc.bpm} BPM` : 'no tempo', `${s.pageCount} p.`];
-    html.push(`
+    const info = [sc.bpm ? `${sc.bpm} BPM` : 'No tempo', `${s.pageCount} ${s.pageCount === 1 ? 'page' : 'pages'}`];
+    return `
       <div class="card song" data-open-song="${s.id}">
-        <div class="thumb">${s.thumb ? `<img src="${s.thumb}" alt="">` : ''}</div>
-        <div class="meta"><div class="title">${esc(s.title)}</div>
-          <div class="sub">${q ? esc(pathLabel(s.folderId)) + ' · ' : ''}${info.join(' · ')}</div></div>
-        <button class="more" data-song-menu="${s.id}" aria-label="Song options">⋯</button>
-      </div>`);
-  }
-  $('#grid').innerHTML = html.join('');
+        <div class="thumb">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="thumb-ph">${icon('file-music')}</span>`}</div>
+        <div class="meta">
+          <div class="meta-text"><div class="title">${esc(s.title)}</div>
+            <div class="sub">${q ? esc(pathLabel(s.folderId)) + ' · ' : ''}${info.join(' · ')}</div></div>
+          <button class="more" data-song-menu="${s.id}" aria-label="Song options">${icon('more')}</button>
+        </div>
+      </div>`;
+  });
+  const group = (label, cls, cards) => cards.length
+    ? `<div class="group"><h2 class="group-title">${label}<span class="count">${cards.length}</span></h2><div class="${cls}">${cards.join('')}</div></div>`
+    : '';
+  $('#grid').innerHTML = group('Folders', 'folder-grid', folderCards) + group('Music', 'song-grid', songCards);
   const empty = !folders.length && !songs.length;
   $('#empty').hidden = !empty;
   $('#empty').innerHTML = q
-    ? `<p>No songs or folders match “${esc(state.query)}”.</p>`
-    : `<p><strong>This folder is empty.</strong></p><p>Tap <b>Import PDF</b> to add sheet music, or <b>New folder</b> to organise.</p>`;
+    ? `<div class="empty-ic">${icon('search-x')}</div>
+       <h2>No Results</h2>
+       <p>No songs or folders match “${esc(state.query)}”.</p>`
+    : `<div class="empty-ic">${icon(state.folderId ? 'folder-open' : 'music')}</div>
+       <h2>${state.folderId ? 'This folder is empty' : 'No music yet'}</h2>
+       <p>Import a PDF or scan a printed score to add it here. Use folders to keep your library organised.</p>
+       <div class="empty-actions">
+         <button class="tb-btn primary" data-empty-action="import">${icon('file-up')}<span class="lbl">Import PDF</span></button>
+         <button class="tb-btn" data-empty-action="scan">${icon('scan-line')}<span class="lbl">Scan</span></button>
+       </div>`;
 }
 
 // ---------- Actions ----------
@@ -122,42 +136,57 @@ async function newFolder() {
   reload();
 }
 
+// Store a PDF (from a file or from the photo scanner) as a new song in the current folder.
+async function importBytes(bytes, title) {
+  const t = toast(`Importing ${title}…`, { sticky: true });
+  try {
+    const pdf = await loadPdf(bytes);
+    const thumb = await makeThumbnail(pdf);
+    const detected = await analyzePdf(pdf, msg => t.update(`${title}: ${msg}`));
+    const song = {
+      id: db.uid(),
+      title,
+      folderId: state.folderId,
+      createdAt: Date.now(),
+      lastOpened: 0,
+      pageCount: pdf.numPages,
+      thumb,
+      scroll: scrollFromDetection(detected),
+    };
+    pdf.destroy();
+    await db.addSong(song, bytes);
+    t.update(`Added “${song.title}”${detected.bpm ? ` · ${detected.bpm} BPM` : ''}`, 2500);
+  } catch (e) {
+    console.error(e);
+    t.update(`Could not import ${title}: ${e.message || e}`, 4000);
+  }
+  await reload();
+}
+
 async function importFiles(files) {
   for (const file of files) {
     if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast(`${file.name} is not a PDF`); continue; }
-    const t = toast(`Importing ${file.name}…`, { sticky: true });
-    try {
-      const bytes = await file.arrayBuffer();
-      const pdf = await loadPdf(bytes);
-      const thumb = await makeThumbnail(pdf);
-      const detected = await analyzePdf(pdf, msg => t.update(`${file.name}: ${msg}`));
-      const song = {
-        id: db.uid(),
-        title: file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim(),
-        folderId: state.folderId,
-        createdAt: Date.now(),
-        lastOpened: 0,
-        pageCount: pdf.numPages,
-        thumb,
-        scroll: scrollFromDetection(detected),
-      };
-      pdf.destroy();
-      await db.addSong(song, bytes);
-      t.update(`Added “${song.title}”${detected.bpm ? ` · ${detected.bpm} BPM` : ''}`, 2500);
-    } catch (e) {
-      console.error(e);
-      t.update(`Could not import ${file.name}: ${e.message || e}`, 4000);
-    }
-    await reload();
+    const title = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+    await importBytes(await file.arrayBuffer(), title);
+  }
+}
+
+async function scanMusic() {
+  try {
+    const { startScan } = await import('./scan.js');
+    startScan((bytes, title) => importBytes(bytes, title));
+  } catch (e) {
+    console.error(e);
+    toast('Could not open the scanner: ' + e.message);
   }
 }
 
 async function songMenu(id) {
   const song = state.songs.find(s => s.id === id);
   const choice = await menu(song.title, [
-    { label: 'Rename', value: 'rename' },
-    { label: 'Move to folder…', value: 'move' },
-    { label: 'Delete', value: 'delete', danger: true },
+    { label: 'Rename', value: 'rename', icon: 'pencil' },
+    { label: 'Move to folder…', value: 'move', icon: 'move' },
+    { label: 'Delete', value: 'delete', danger: true, icon: 'trash' },
   ]);
   if (choice === 'rename') {
     const name = await promptText('Rename song', song.title);
@@ -176,9 +205,9 @@ async function songMenu(id) {
 async function folderMenu(id) {
   const folder = state.folders.find(f => f.id === id);
   const choice = await menu(folder.name, [
-    { label: 'Rename', value: 'rename' },
-    { label: 'Move to folder…', value: 'move' },
-    { label: 'Delete', value: 'delete', danger: true },
+    { label: 'Rename', value: 'rename', icon: 'pencil' },
+    { label: 'Move to folder…', value: 'move', icon: 'move' },
+    { label: 'Delete', value: 'delete', danger: true, icon: 'trash' },
   ]);
   if (choice === 'rename') {
     const name = await promptText('Rename folder', folder.name);
@@ -257,27 +286,46 @@ async function appMenu() {
   try {
     const est = await navigator.storage.estimate();
     const persisted = await navigator.storage.persisted();
-    storage = ` · ${(est.usage / 1048576).toFixed(1)} MB used${persisted ? ' · persistent' : ''}`;
+    storage = `${(est.usage / 1048576).toFixed(1)} MB stored on this device${persisted ? ' · persistent storage' : ''}`;
   } catch {}
-  const choice = await menu(`Library${storage}`, [
-    { label: 'Back up library (save to Files)', value: 'export' },
-    { label: 'Restore from backup…', value: 'import' },
-  ]);
+  const choice = await menu('Library', [
+    { label: 'Back up library (save to Files)', value: 'export', icon: 'download' },
+    { label: 'Restore from backup…', value: 'import', icon: 'upload' },
+  ], { message: storage });
   if (choice === 'export') exportBackup();
   if (choice === 'import') $('#backup-input').click();
 }
 
 // ---------- Wiring ----------
 
+// Prepend the SVG named by data-icon to static elements in index.html.
+function hydrateIcons(root = document) {
+  for (const el of root.querySelectorAll('[data-icon]')) el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon));
+}
+
 function init() {
+  hydrateIcons();
   $('#sort').value = state.sort;
   $('#sort').addEventListener('change', e => { state.sort = e.target.value; localStorageSet('sort', state.sort); render(); });
   $('#search').addEventListener('input', e => { state.query = e.target.value; render(); });
   $('#btn-folder').addEventListener('click', newFolder);
   $('#btn-import').addEventListener('click', () => $('#file-input').click());
+  $('#btn-scan').addEventListener('click', scanMusic);
   $('#btn-menu').addEventListener('click', appMenu);
   $('#file-input').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; importFiles(f); });
   $('#backup-input').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importBackup(f); });
+
+  $('#empty').addEventListener('click', e => {
+    const b = e.target.closest('[data-empty-action]');
+    if (!b) return;
+    if (b.dataset.emptyAction === 'import') $('#file-input').click();
+    if (b.dataset.emptyAction === 'scan') scanMusic();
+  });
+  // Hairline under the sticky header once the content scrolls beneath it.
+  const top = $('.top');
+  const onScroll = () => top.classList.toggle('scrolled', window.scrollY > 2);
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
 
   $('#crumbs').addEventListener('click', e => {
     const b = e.target.closest('[data-folder]');

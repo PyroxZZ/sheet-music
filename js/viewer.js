@@ -289,11 +289,13 @@ function updateStatus() {
   const s = state.song.scroll;
   const el = $('#v-status');
   const k = keyframes();
-  if (!k) { el.textContent = s.bpm ? `♩ = ${s.bpm}` : 'No tempo set'; return; }
+  // Only touch the DOM when the text changes (this runs every animation frame while playing).
+  const show = (main, sub) => { const h = `<span class="st-main">${main}</span><span class="st-sub">${sub}</span>`; if (el.innerHTML !== h) el.innerHTML = h; };
+  if (!k) { show(s.bpm ? `${s.bpm} BPM` : 'No tempo set', s.bpm ? 'Set total bars to scroll' : 'Open Tempo &amp; scroll'); return; }
   const spb = secondsPerBar(s);
   const bar = Math.min(Math.floor(state.t / spb) + 1, Math.round(k[k.length - 1].t / spb));
   const total = Math.round(k[k.length - 1].t / spb);
-  el.textContent = `Bar ${bar} / ${total} · ${s.bpm} BPM · ${s.beatsPerBar}/${s.beatUnit}`;
+  show(`Bar ${bar} of ${total}`, `${s.bpm} BPM · ${s.beatsPerBar}/${s.beatUnit}`);
 }
 
 // ---------- Chrome (toolbar) ----------
@@ -305,7 +307,7 @@ function showChrome(show) {
 
 // ---------- Settings panel ----------
 
-const NOTE_LABELS = [[1, '♩ quarter'], [1.5, '♩. dotted quarter'], [2, '𝅗𝅥 half'], [3, '𝅗𝅥. dotted half'], [0.5, '♪ eighth']];
+const NOTE_LABELS = [[1, 'Quarter note'], [1.5, 'Dotted quarter'], [2, 'Half note'], [3, 'Dotted half'], [0.5, 'Eighth note']];
 
 function fillSettings() {
   const s = state.song.scroll;

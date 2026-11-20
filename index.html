@@ -6,7 +6,8 @@
   <title>Sheet Music</title>
   <meta name="description" content="Offline sheet music library with BPM auto-scroll">
   <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#1f2a44">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <!-- iOS: run full screen when added to the Home Screen -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -15,35 +16,47 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="scan.css">
 </head>
 <body>
+  <!-- Elements with data-icon get the named SVG from js/icons.js prepended at start-up (see hydrateIcons in app.js). -->
+
   <!-- ===== Library ===== -->
   <main id="library">
     <header class="top">
-      <div class="row">
+      <div class="titlebar">
         <h1>Sheet Music</h1>
-        <div class="actions">
-          <button class="btn ghost" id="btn-folder">＋ New folder</button>
-          <button class="btn primary" id="btn-import">Import PDF</button>
-          <button class="btn icon" id="btn-menu" aria-label="Library options">⋯</button>
+        <div class="actions" role="toolbar" aria-label="Library">
+          <button class="tb-btn" id="btn-scan" data-icon="scan-line"><span class="lbl">Scan</span></button>
+          <button class="tb-btn" id="btn-folder" data-icon="folder-plus"><span class="lbl">New folder</span></button>
+          <button class="tb-btn primary" id="btn-import" data-icon="file-up"><span class="lbl">Import PDF</span></button>
+          <button class="tb-btn round" id="btn-menu" data-icon="more" aria-label="Library options"></button>
         </div>
       </div>
-      <div class="row tools">
-        <input id="search" type="search" placeholder="Search all music" autocomplete="off">
-        <select id="sort" aria-label="Sort">
-          <option value="name-asc">Title A–Z</option>
-          <option value="name-desc">Title Z–A</option>
-          <option value="newest">Newest first</option>
-          <option value="oldest">Oldest first</option>
-          <option value="recent">Recently opened</option>
-        </select>
+      <div class="tools">
+        <label class="field search-field">
+          <span class="field-ic" data-icon="search"></span>
+          <input id="search" type="search" placeholder="Search all music" autocomplete="off" aria-label="Search all music">
+        </label>
+        <label class="field sort-field">
+          <span class="field-ic" data-icon="arrow-up-down"></span>
+          <select id="sort" aria-label="Sort">
+            <option value="name-asc">Title A–Z</option>
+            <option value="name-desc">Title Z–A</option>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="recent">Recently opened</option>
+          </select>
+          <span class="field-chev" data-icon="chevron-down"></span>
+        </label>
       </div>
       <nav id="crumbs" aria-label="Folder path"></nav>
     </header>
 
     <div id="install-hint" class="hint" hidden>
-      To install: tap <b>Share</b> <span aria-hidden="true">⬆︎</span> then <b>Add to Home Screen</b>. Your music is stored on this device.
-      <button class="btn ghost small">Got it</button>
+      <span class="hint-ic" data-icon="plus-square"></span>
+      <p class="hint-text"><b>Install Sheet Music.</b> Tap <span class="kbd" data-icon="share">Share</span> then <b>Add to Home Screen</b>. Your music is stored on this device.</p>
+      <button class="tb-btn small">Got it</button>
     </div>
 
     <section id="grid" class="grid"></section>
@@ -58,53 +71,83 @@
     <div id="v-scroll"><div id="v-pages"></div></div>
 
     <header class="v-bar v-top">
-      <button class="btn ghost" id="v-back">‹ Library</button>
+      <button class="nav-btn" id="v-back" data-icon="chevron-left"><span class="lbl">Library</span></button>
       <div id="v-title"></div>
-      <button class="btn ghost" id="v-gear">Tempo &amp; scroll</button>
+      <button class="nav-btn" id="v-gear" data-icon="sliders" aria-label="Tempo and scroll settings"><span class="lbl">Tempo &amp; scroll</span></button>
     </header>
 
     <footer class="v-bar v-bottom">
-      <button class="btn round" id="v-restart" aria-label="Back to start">⏮</button>
-      <button class="btn round big" id="v-play" aria-label="Play">
-        <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-        <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+      <div class="v-left">
+        <button class="ctl-btn" id="v-restart" data-icon="skip-back" aria-label="Back to start"></button>
+      </div>
+      <button class="ctl-btn play" id="v-play" aria-label="Play">
+        <span class="i-play" data-icon="play"></span>
+        <span class="i-pause" data-icon="pause"></span>
       </button>
-      <div id="v-status"></div>
+      <div id="v-status" aria-live="off"></div>
     </footer>
 
     <div id="v-count" hidden></div>
 
-    <aside id="v-settings" hidden>
-      <div class="s-head"><h2>Tempo &amp; scroll</h2><button class="btn ghost small" id="s-close">Done</button></div>
-      <p id="s-detected" class="s-info"></p>
-
-      <label class="s-row">Tempo (BPM)
-        <span class="stepper">
-          <button type="button" class="btn ghost small" data-bpm="-5">−5</button>
-          <button type="button" class="btn ghost small" data-bpm="-1">−1</button>
-          <input id="s-bpm" type="number" inputmode="decimal" min="20" max="400">
-          <button type="button" class="btn ghost small" data-bpm="1">+1</button>
-          <button type="button" class="btn ghost small" data-bpm="5">+5</button>
-        </span>
-      </label>
-      <label class="s-row">Beat note
-        <select id="s-unit"></select>
-      </label>
-      <div class="s-row">Time signature
-        <span class="timesig">
-          <input id="s-num" type="number" inputmode="numeric" min="1" max="32" aria-label="Beats per bar">
-          <span>/</span>
-          <select id="s-den" aria-label="Beat unit">
-            <option>2</option><option>4</option><option>8</option><option>16</option>
-          </select>
-        </span>
+    <aside id="v-settings" hidden aria-label="Tempo and scroll">
+      <div class="s-head">
+        <h2>Tempo &amp; Scroll</h2>
+        <button class="nav-btn strong" id="s-close">Done</button>
       </div>
-      <label class="s-row">Total bars
-        <input id="s-bars" type="number" inputmode="numeric" min="1" placeholder="auto">
-      </label>
-      <label class="s-row check"><input id="s-countin" type="checkbox"> One-bar count-in</label>
-      <label class="s-row check"><input id="s-marks" type="checkbox"> Show detected bar markers</label>
-      <button class="btn ghost" id="s-redetect">Re-analyse PDF</button>
+
+      <div class="s-body">
+        <div class="s-info"><span data-icon="info"></span><p id="s-detected"></p></div>
+
+        <h3 class="s-group-title">Tempo</h3>
+        <div class="s-group">
+          <div class="s-row tempo-row">
+            <span class="stepper" role="group" aria-label="Tempo in BPM">
+              <button type="button" class="step-btn" data-bpm="-5" aria-label="Minus 5 BPM">−5</button>
+              <button type="button" class="step-btn" data-bpm="-1" aria-label="Minus 1 BPM" data-icon="minus"></button>
+              <span class="bpm-box">
+                <input id="s-bpm" type="number" inputmode="decimal" min="20" max="400" aria-label="Tempo (BPM)" placeholder="–">
+                <span class="bpm-unit">BPM</span>
+              </span>
+              <button type="button" class="step-btn" data-bpm="1" aria-label="Plus 1 BPM" data-icon="plus"></button>
+              <button type="button" class="step-btn" data-bpm="5" aria-label="Plus 5 BPM">+5</button>
+            </span>
+          </div>
+          <label class="s-row">
+            <span class="s-label">Beat note</span>
+            <span class="s-select"><select id="s-unit"></select><span data-icon="chevron-down"></span></span>
+          </label>
+          <div class="s-row">
+            <span class="s-label">Time signature</span>
+            <span class="timesig">
+              <input id="s-num" type="number" inputmode="numeric" min="1" max="32" aria-label="Beats per bar">
+              <span class="slash">/</span>
+              <span class="s-select"><select id="s-den" aria-label="Beat unit">
+                <option>2</option><option>4</option><option>8</option><option>16</option>
+              </select><span data-icon="chevron-down"></span></span>
+            </span>
+          </div>
+        </div>
+
+        <h3 class="s-group-title">Scrolling</h3>
+        <div class="s-group">
+          <label class="s-row">
+            <span class="s-label">Total bars</span>
+            <input id="s-bars" type="number" inputmode="numeric" min="1" placeholder="Auto">
+          </label>
+          <label class="s-row">
+            <span class="s-label">One-bar count-in</span>
+            <input id="s-countin" class="switch" type="checkbox">
+          </label>
+          <label class="s-row">
+            <span class="s-label">Show detected bar markers</span>
+            <input id="s-marks" class="switch" type="checkbox">
+          </label>
+        </div>
+
+        <div class="s-group">
+          <button class="s-row s-action" id="s-redetect" data-icon="refresh"><span>Re-analyse PDF</span></button>
+        </div>
+      </div>
     </aside>
   </section>
 
