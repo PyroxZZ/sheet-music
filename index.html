@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Sheet Music</title>
+  <meta name="description" content="Offline sheet music library with BPM auto-scroll">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1f2a44">
+  <!-- iOS: run full screen when added to the Home Screen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sheet Music">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ===== Library ===== -->
+  <main id="library">
+    <header class="top">
+      <div class="row">
+        <h1>Sheet Music</h1>
+        <div class="actions">
+          <button class="btn ghost" id="btn-folder">＋ New folder</button>
+          <button class="btn primary" id="btn-import">Import PDF</button>
+          <button class="btn icon" id="btn-menu" aria-label="Library options">⋯</button>
+        </div>
+      </div>
+      <div class="row tools">
+        <input id="search" type="search" placeholder="Search all music" autocomplete="off">
+        <select id="sort" aria-label="Sort">
+          <option value="name-asc">Title A–Z</option>
+          <option value="name-desc">Title Z–A</option>
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="recent">Recently opened</option>
+        </select>
+      </div>
+      <nav id="crumbs" aria-label="Folder path"></nav>
+    </header>
+
+    <div id="install-hint" class="hint" hidden>
+      To install: tap <b>Share</b> <span aria-hidden="true">⬆︎</span> then <b>Add to Home Screen</b>. Your music is stored on this device.
+      <button class="btn ghost small">Got it</button>
+    </div>
+
+    <section id="grid" class="grid"></section>
+    <div id="empty" class="empty" hidden></div>
+
+    <input id="file-input" type="file" accept="application/pdf,.pdf" multiple hidden>
+    <input id="backup-input" type="file" accept="application/json,.json" hidden>
+  </main>
+
+  <!-- ===== Viewer ===== -->
+  <section id="viewer" hidden>
+    <div id="v-scroll"><div id="v-pages"></div></div>
+
+    <header class="v-bar v-top">
+      <button class="btn ghost" id="v-back">‹ Library</button>
+      <div id="v-title"></div>
+      <button class="btn ghost" id="v-gear">Tempo &amp; scroll</button>
+    </header>
+
+    <footer class="v-bar v-bottom">
+      <button class="btn round" id="v-restart" aria-label="Back to start">⏮</button>
+      <button class="btn round big" id="v-play" aria-label="Play">
+        <svg class="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+      </button>
+      <div id="v-status"></div>
+    </footer>
+
+    <div id="v-count" hidden></div>
+
+    <aside id="v-settings" hidden>
+      <div class="s-head"><h2>Tempo &amp; scroll</h2><button class="btn ghost small" id="s-close">Done</button></div>
+      <p id="s-detected" class="s-info"></p>
+
+      <label class="s-row">Tempo (BPM)
+        <span class="stepper">
+          <button type="button" class="btn ghost small" data-bpm="-5">−5</button>
+          <button type="button" class="btn ghost small" data-bpm="-1">−1</button>
+          <input id="s-bpm" type="number" inputmode="decimal" min="20" max="400">
+          <button type="button" class="btn ghost small" data-bpm="1">+1</button>
+          <button type="button" class="btn ghost small" data-bpm="5">+5</button>
+        </span>
+      </label>
+      <label class="s-row">Beat note
+        <select id="s-unit"></select>
+      </label>
+      <div class="s-row">Time signature
+        <span class="timesig">
+          <input id="s-num" type="number" inputmode="numeric" min="1" max="32" aria-label="Beats per bar">
+          <span>/</span>
+          <select id="s-den" aria-label="Beat unit">
+            <option>2</option><option>4</option><option>8</option><option>16</option>
+          </select>
+        </span>
+      </div>
+      <label class="s-row">Total bars
+        <input id="s-bars" type="number" inputmode="numeric" min="1" placeholder="auto">
+      </label>
+      <label class="s-row check"><input id="s-countin" type="checkbox"> One-bar count-in</label>
+      <label class="s-row check"><input id="s-marks" type="checkbox"> Show detected bar markers</label>
+      <button class="btn ghost" id="s-redetect">Re-analyse PDF</button>
+    </aside>
+  </section>
+
+  <div id="toasts" aria-live="polite"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
