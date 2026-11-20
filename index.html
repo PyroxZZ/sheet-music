@@ -94,6 +94,8 @@
         <button class="ctl-btn" id="v-restart" data-icon="skip-back" aria-label="Back to start"></button>
       </div>
       <div class="v-mid">
+        <button class="ctl-btn" id="v-light" aria-label="Stage light"></button>
+        <button class="ctl-btn pdf-only" id="v-find-btn" data-icon="search" aria-label="Find in music"></button>
         <button class="ctl-btn play" id="v-play" aria-label="Play">
           <span class="i-play" data-icon="play"></span>
           <span class="i-pause" data-icon="pause"></span>
@@ -107,6 +109,18 @@
     </footer>
 
     <div id="v-count" hidden></div>
+
+    <aside id="v-find" class="v-panel" hidden aria-label="Find in music">
+      <div class="s-head"><h2>Find in music</h2><button class="nav-btn strong" id="f-close">Done</button></div>
+      <div class="f-search">
+        <label class="field search-field">
+          <span class="field-ic" data-icon="search"></span>
+          <input id="f-q" type="search" placeholder="Song title or any words" autocomplete="off" aria-label="Find in music">
+        </label>
+        <p id="f-status" class="f-status" hidden></p>
+      </div>
+      <div class="s-body" id="f-list"></div>
+    </aside>
 
     <aside id="v-settings" hidden aria-label="Tempo and scroll">
       <div class="s-head">

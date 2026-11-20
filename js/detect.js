@@ -138,6 +138,17 @@ function groupLines(items) {
   return lines;
 }
 
+// Words on each page as lines: { v, read: pages done, pages: [[[text, y, h], ...], ...] }.
+// y = position down the page (0-1), h = text height (0-1), used to spot titles.
+export function pageText(items, pageCount, read = pageCount) {
+  const pages = Array.from({ length: pageCount }, () => []);
+  for (const l of groupLines(items)) {
+    const t = l.text.replace(/\s+/g, ' ').trim();
+    if (t && pages[l.page]) pages[l.page].push([t, +l.y.toFixed(3), +Math.max(...l.items.map(i => i.h || 0)).toFixed(4)]);
+  }
+  return { v: 1, read, pages };
+}
+
 const median = arr => {
   if (!arr.length) return null;
   const s = [...arr].sort((a, b) => a - b);
@@ -191,7 +202,7 @@ function findBarMarks(lines, pageCount, tempo) {
 
 // ---------- Text extraction ----------
 
-async function textItems(pdf, pageIndex) {
+export async function textItems(pdf, pageIndex) {
   const page = await pdf.getPage(pageIndex + 1);
   const vp = page.getViewport({ scale: 1 });
   const content = await page.getTextContent();
@@ -230,7 +241,7 @@ async function getOcrWorker() {
   return tesseractWorker;
 }
 
-async function ocrItems(pdf, pageIndex) {
+export async function ocrItems(pdf, pageIndex) {
   const worker = await getOcrWorker();
   const canvas = await renderPageToCanvas(pdf, pageIndex + 1, 1800, 1);
   const W = canvas.width, H = canvas.height;
@@ -288,6 +299,9 @@ export async function analyzePdf(pdf, onProgress = () => {}) {
   }
 
   const timeSig = findTimeSig(items);
+  // Keep the words for Find and library search (pages OCR didn't reach are filled in later by Find).
+  const read = method === 'none' ? 0 : (hasText ? pageCount : Math.min(pageCount, 20));
+  const text = pageText(items, pageCount, read);
   const bars = findBarMarks(lines, pageCount, tempo);
 
   if (!tempo) notes.push('No tempo found – set the BPM yourself.');
@@ -306,6 +320,7 @@ export async function analyzePdf(pdf, onProgress = () => {}) {
     marks: bars.marks,
     endMark: bars.endMark || null,
     totalBars: bars.totalBars,
+    text,
     notes,
   };
 }

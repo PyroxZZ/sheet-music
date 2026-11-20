@@ -812,3 +812,24 @@ input.switch:checked::before { transform: translateX(20px); }
   .settings-page .s-body { padding-bottom: calc(var(--safe-bottom) + var(--sp-5)); }
   .s-row .s-select select { max-width: 160px; }
 }
+
+/* Find in music (panel opened from the bottom bar) */
+#v-find {
+  position: absolute; z-index: 4; right: calc(var(--sp-3) + var(--safe-right)); top: calc(var(--safe-top) + 64px);
+  width: min(430px, calc(100% - 24px)); max-height: calc(100% - var(--safe-top) - var(--safe-bottom) - 170px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg); color: var(--text); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
+  transform-origin: top right; animation: pop-in var(--dur) var(--ease-out);
+}
+#v-find[hidden] { display: none; }
+.f-search { flex: none; padding: var(--sp-3) var(--sp-4) 0; }
+.f-search .search-field { width: 100%; }
+.f-status { margin-top: var(--sp-2); font-size: var(--fs-foot); color: var(--muted); }
+#f-list { padding-top: var(--sp-2); }
+#f-list .s-group-title { margin-top: var(--sp-3); }
+.f-row { width: 100%; border: 0; background: none; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.f-row:active { background: var(--fill); }
+.f-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-text mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 3px; }
+.f-page { flex: none; font-size: var(--fs-foot); color: var(--muted); font-variant-numeric: tabular-nums; }
+.f-empty { padding: var(--sp-5) var(--sp-4); text-align: center; color: var(--muted); font-size: var(--fs-sub); }

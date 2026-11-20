@@ -20,7 +20,8 @@
 import * as db from './db.js';
 import { loadPdf } from './pdf.js';
 import { analyzePdf } from './detect.js';
-import { toast } from './ui.js';
+import { toast, esc } from './ui.js';
+import { icon } from './icons.js';
 import { pref, setPref } from './prefs.js';
 
 // Where the music being played sits on the screen while scrolling (Settings: higher / middle / lower).
@@ -40,12 +41,19 @@ function applyStage() {
   v.classList.toggle('stage-warm', pref('stage') === 'warm');
   v.classList.toggle('stage-dark', pref('stage') === 'dark');
   v.classList.toggle('play-hidden', pref('playBtn') !== '1');
+  $('#v-light').innerHTML = icon(STAGE[pref('stage')]?.icon || 'sun');
 }
+const STAGE = {
+  normal: { icon: 'sun', label: 'Normal', next: 'warm' },
+  warm: { icon: 'sunset', label: 'Warm', next: 'dark' },
+  dark: { icon: 'moon', label: 'Dark', next: 'normal' },
+};
 
 let state = null;
 let pageAnim = 0; // rAF id of a tap page-turn animation
 
-export async function openViewer(song, onClose, playlist = [], direction = 0) {
+// at: { page, y } opens the music at a place found by search.
+export async function openViewer(song, onClose, playlist = [], direction = 0, at = null) {
   const bytes = await db.getPdf(song.id);
   if (!bytes) { toast('The file for this song is missing'); return; }
 
@@ -77,6 +85,7 @@ export async function openViewer(song, onClose, playlist = [], direction = 0) {
   if (state.kind === 'pdf') {
     state.pdf = await loadPdf(bytes);
     await buildPdfPages();
+    if (at && state.pages[at.page]) jumpToPage(at.page, at.y, false);
   } else {
     await buildScore();
   }
@@ -105,6 +114,7 @@ function teardown() {
   $('#viewer').classList.remove('is-paged', 'has-strip', 'can-spread');
   $('#v-pages').hidden = false;
   $('#v-settings').hidden = true;
+  $('#v-find').hidden = true;
 }
 
 function closeViewer() {
@@ -236,7 +246,8 @@ function updateStrip() {
 }
 
 // Tap a page in the list: go there (and carry on playing from it).
-function jumpToPage(i) {
+// y: a spot on the page (0-1), e.g. a title found by search; it is placed a little below the top.
+function jumpToPage(i, y = 0, smooth = true) {
   if (state.paged) {
     const n = state.pages.length;
     let c = i;
@@ -247,7 +258,9 @@ function jumpToPage(i) {
   } else {
     const sc = $('#v-scroll');
     const topBar = $('#viewer').classList.contains('chrome-hidden') ? 0 : $('#viewer .v-top').offsetHeight;
-    sc.scrollTo({ top: Math.max(0, state.pages[i].top - topBar - sc.clientHeight * 0.04), behavior: 'smooth' });
+    const p = state.pages[i];
+    const top = y > 0.12 ? p.top + cropY(p, y) * p.h - topBar - sc.clientHeight * 0.12 : p.top - topBar - sc.clientHeight * 0.04;
+    sc.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'instant' });
     setTimeout(() => { if (state) { syncTimeToScroll(); updateStatus(); updateStrip(); } }, 450);
   }
   updateStatus();
@@ -1029,12 +1042,71 @@ async function changeZoom(delta) {
 
 function openSettings() { $('#v-settings').hidden = false; showChrome(true); }
 
+// ---------- Find in music ----------
+
+let findMod = null;
+async function openFind() {
+  if (!state || state.kind !== 'pdf') return;
+  const st = state;
+  $('#v-settings').hidden = true;
+  $('#v-find').hidden = false;
+  showChrome(true);
+  findMod = findMod || await import('./find.js');
+  if (!st.outline) st.outline = await findMod.outline(st.pdf);
+  if (state !== st) return;
+  renderFind();
+  // Read every page's words once (OCR for scans, in the background); results fill in as it goes.
+  if (!st.findIndexing && (!st.song.text || st.song.text.read < st.pdf.numPages)) {
+    st.findIndexing = true;
+    const status = $('#f-status');
+    findMod.ensureText(st.song, st.pdf, {
+      cancelled: () => state !== st,
+      onProgress: (i, n) => {
+        if (state !== st) return;
+        status.hidden = i >= n;
+        status.textContent = i < 0 ? 'Could not read the scanned pages (reading them needs internet the first time).'
+          : `Reading scanned page ${i + 1} of ${n}… results appear as pages are read.`;
+        renderFind();
+      },
+    }).catch(e => console.warn(e)).finally(() => { st.findIndexing = false; if (state === st) renderFind(); });
+  }
+}
+
+function renderFind() {
+  const st = state, f = findMod;
+  if (!st || !f || $('#v-find').hidden) return;
+  const q = $('#f-q').value;
+  const row = (page, y, html) => `<button class="s-row f-row" data-page="${page}" data-y="${y}"><span class="f-text">${html}</span><span class="f-page">Page ${page + 1}</span></button>`;
+  let html;
+  if (q.trim()) {
+    const res = f.search(st.song.text, q);
+    html = res.length
+      ? `<h3 class="s-group-title">${res.length === 1 ? '1 place' : res.length + ' places'}</h3><div class="s-group">${res.map(r => row(r.page, r.y, mark(r.line, q))).join('')}</div>`
+      : `<p class="f-empty">Nothing found${st.findIndexing ? ' yet' : ''}.</p>`;
+  } else {
+    const songs = st.outline.length >= 2 ? st.outline : f.titles(st.song.text);
+    html = songs.length >= 2
+      ? `<h3 class="s-group-title">Songs in this PDF</h3><div class="s-group">${songs.map(s => row(s.page, s.y || 0, esc(s.title))).join('')}</div>`
+      : `<p class="f-empty">Type a song title or any words printed in the music.</p>`;
+  }
+  $('#f-list').innerHTML = html;
+}
+
+// Highlight the search in a line of text.
+function mark(line, q) {
+  const n = findMod.norm(line), i = n.indexOf(findMod.norm(q.trim()));
+  if (i < 0 || n.length !== line.length) return esc(line);
+  const len = q.trim().length;
+  return esc(line.slice(0, i)) + '<mark>' + esc(line.slice(i, i + len)) + '</mark>' + esc(line.slice(i + len));
+}
+
 async function redetect() {
   if (state.kind !== 'pdf') return;
   const t = toast('Analysing PDF…', { sticky: true });
   try {
     const d = await analyzePdf(state.pdf, msg => t.update(msg));
     state.song.scroll = scrollFromDetection(d, state.song.scroll);
+    state.song.text = d.text;
     await db.put('songs', state.song);
     fillSettings();
     drawMarkers();
@@ -1048,8 +1120,9 @@ async function redetect() {
 }
 
 export function scrollFromDetection(d, previous = {}) {
+  const { text, ...detected } = d; // page text is kept on the song itself (song.text)
   return {
-    detected: d,
+    detected,
     bpm: d.bpm,
     tempoUnit: d.tempoUnit,
     beatsPerBar: d.beatsPerBar,
@@ -1081,6 +1154,20 @@ export function initViewer() {
     const p = $('#v-settings'); p.hidden = !p.hidden;
   });
   $('#s-close').addEventListener('click', () => { $('#v-settings').hidden = true; });
+  $('#v-light').addEventListener('click', () => {
+    const next = STAGE[pref('stage')]?.next || 'warm';
+    setPref('stage', next);
+    toast(`Stage light: ${STAGE[next].label}`, { ms: 1200 });
+  });
+  $('#v-find-btn').addEventListener('click', () => { if ($('#v-find').hidden) openFind(); else $('#v-find').hidden = true; });
+  $('#f-close').addEventListener('click', () => { $('#v-find').hidden = true; });
+  $('#f-q').addEventListener('input', renderFind);
+  $('#f-list').addEventListener('click', e => {
+    const b = e.target.closest('[data-page]');
+    if (!b || !state) return;
+    $('#v-find').hidden = true;
+    jumpToPage(+b.dataset.page, +b.dataset.y);
+  });
   $('#v-settings').addEventListener('input', e => { if (!e.target.closest('[data-zoom]')) readSettings(); });
   $('#v-settings').addEventListener('change', e => { if (!e.target.closest('[data-zoom]')) readSettings(); });
   $('#s-autoplay').addEventListener('click', () => {
@@ -1140,6 +1227,7 @@ export function initViewer() {
     if (dt < 600 && Math.abs(dx) > 80 && Math.abs(dy) < 50) { switchSong(dx < 0 ? 1 : -1); return; }
     if (dt > 300 || Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
     if (!$('#v-settings').hidden) { $('#v-settings').hidden = true; return; }
+    if (!$('#v-find').hidden) { $('#v-find').hidden = true; return; }
     const toggleChrome = () => showChrome($('#viewer').classList.contains('chrome-hidden'));
     // Music fits on one screen: nothing to turn, so a tap anywhere toggles the toolbars,
     // except in a setlist, where the sides still move to the next / previous song.

@@ -6,6 +6,7 @@ import { analyzePdf } from './detect.js';
 import { openViewer, initViewer, scrollFromDetection } from './viewer.js';
 import { toast, promptText, confirmBox, menu, pickFolder, esc } from './ui.js';
 import { icon } from './icons.js';
+import { firstMatch } from './find.js';
 
 const $ = sel => document.querySelector(sel);
 
@@ -128,6 +129,8 @@ function render() {
     songs = state.songs.filter(s => s.folderId === state.folderId);
     if (!state.folderId) lists = state.setlists;
   }
+  // Songs whose pages contain the search (e.g. a song inside a big PDF book).
+  const inside = q ? state.songs.filter(s => !songs.includes(s)).map(s => ({ s, m: firstMatch(s, q) })).filter(x => x.m) : [];
   lists = [...lists].sort(byName);
   folders = sortFolders(folders);
   songs = sortSongs(songs);
@@ -159,9 +162,19 @@ function render() {
   const group = (label, cls, cards) => cards.length
     ? `<div class="group"><h2 class="group-title">${label}<span class="count">${cards.length}</span></h2><div class="${cls}">${cards.join('')}</div></div>`
     : '';
+  const insideCards = inside.map(({ s, m }) => `
+      <div class="card song" data-open-song="${s.id}" data-at="${m.page},${m.y}">
+        <div class="thumb">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="thumb-ph">${icon('file-music')}</span>`}</div>
+        <div class="meta">
+          <div class="meta-text"><div class="title">${esc(s.title)}</div>
+            <div class="sub">Page ${m.page + 1} · “${esc(m.line.length > 60 ? m.line.slice(0, 60) + '…' : m.line)}”</div></div>
+          <button class="more" data-song-menu="${s.id}" aria-label="Song options">${icon('more')}</button>
+        </div>
+      </div>`);
   $('#grid').innerHTML = group('Setlists', 'folder-grid', lists.map(setlistCard))
-    + group('Folders', 'folder-grid', folderCards) + group('Music', 'song-grid', songCards);
-  const empty = !folders.length && !songs.length && !lists.length;
+    + group('Folders', 'folder-grid', folderCards) + group('Music', 'song-grid', songCards)
+    + group('Inside music', 'song-grid', insideCards);
+  const empty = !folders.length && !songs.length && !lists.length && !inside.length;
   $('#empty').hidden = !empty;
   $('#empty').innerHTML = q
     ? `<div class="empty-ic">${icon('search-x')}</div>
@@ -244,6 +257,7 @@ async function importBytes(bytes, title) {
       pageCount: pdf.numPages,
       thumb,
       scroll: scrollFromDetection(detected),
+      text: detected.text, // words on each page, for search
     };
     pdf.destroy();
     await db.addSong(song, bytes);
@@ -360,10 +374,10 @@ async function setlistMenu(id) {
   reload();
 }
 
-function openSong(song, playlist) {
+function openSong(song, playlist, at = null) {
   // In a setlist, turning past the last page opens the next song (see viewer.js turnPage).
   playlist = Object.assign([...playlist], { setlist: !!state.setlistId });
-  openViewer(song, reload, playlist).catch(err => { console.error(err); toast('Could not open: ' + err.message); });
+  openViewer(song, reload, playlist, 0, at).catch(err => { console.error(err); toast('Could not open: ' + err.message); });
 }
 
 async function songMenu(id) {
@@ -581,7 +595,10 @@ function init() {
     const l = e.target.closest('[data-open-setlist]');
     if (l) { go(state.folderId, l.dataset.openSetlist); return; }
     const s = e.target.closest('[data-open-song]');
-    if (s) openSong(state.songs.find(x => x.id === s.dataset.openSong), state.visibleSongs || []);
+    if (s) {
+      const at = s.dataset.at ? { page: +s.dataset.at.split(',')[0], y: +s.dataset.at.split(',')[1] } : null;
+      openSong(state.songs.find(x => x.id === s.dataset.openSong), state.visibleSongs || [], at);
+    }
   });
 
   initViewer();
