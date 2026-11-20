@@ -10,7 +10,7 @@ An offline sheet-music library for iPad/iPhone that installs from Safari ("Add t
   - **Bar numbers** at the start of each system. These tell it where each bar is on the page, so the scroll stays in time line by line.
   - Scanned PDFs (pictures with no text) are read with OCR (Tesseract).
 - Everything can be adjusted in **Tempo & scroll**, and the settings are saved per song.
-- **Scan** printed music with the camera. Each photo is flattened and cleaned to black on white. Per page you can choose **Clean B&W** (the cleaned photo, default), **Sharp (traced)** (the ink traced into vector outlines, sharp at any zoom like a publisher's PDF, with no notes re-read or changed) or **Original colour**.
+- **Scan** printed music with the camera. Each photo is flattened and cleaned to black on white. Per page you can choose **Sharp (traced)** (default: the ink traced into vector outlines, sharp at any zoom like a publisher's PDF, with no notes re-read or changed), **Clean B&W** (the cleaned photo) or **Original colour**.
 
 ## How the scroll speed is calculated
 

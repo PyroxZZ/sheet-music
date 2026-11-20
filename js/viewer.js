@@ -465,6 +465,14 @@ function showChrome(show) {
 
 // ---------- Tap to turn the page ----------
 
+// True for a one-page PDF, or when all the music is visible without scrolling.
+function fitsOneScreen() {
+  if (state.kind === 'pdf' && state.pdf && state.pdf.numPages === 1) return true;
+  const sc = $('#v-scroll'), last = $('#v-pages').lastElementChild;
+  if (!last) return true;
+  return last.offsetTop + last.offsetHeight <= sc.clientHeight * 1.05;
+}
+
 function turnPage(dir) {
   const sc = $('#v-scroll');
   const bars = [...document.querySelectorAll('#viewer .v-bar')].filter(b => getComputedStyle(b).opacity !== '0');
@@ -631,9 +639,10 @@ export function initViewer() {
   sc.addEventListener('touchend', release, { passive: true });
   sc.addEventListener('touchcancel', release, { passive: true });
 
-  // Taps on the music (like the Books app):
-  //   toolbars showing -> any tap hides them (no page turn)
-  //   toolbars hidden  -> top strip shows them, left quarter = previous page, rest = next page
+  // Taps on the music:
+  //   more than one screen of music -> left third = previous page, right third = next page,
+  //                                    middle third = show / hide the toolbars
+  //   music fits on one screen      -> a tap anywhere shows / hides the toolbars (nothing to turn)
   // Horizontal swipe = next / previous song.
   let downAt = 0, downX = 0, downY = 0;
   sc.addEventListener('pointerdown', e => { downAt = Date.now(); downX = e.clientX; downY = e.clientY; });
@@ -643,11 +652,12 @@ export function initViewer() {
     if (dt < 600 && Math.abs(dx) > 80 && Math.abs(dy) < 50) { switchSong(dx < 0 ? 1 : -1); return; }
     if (dt > 300 || Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
     if (!$('#v-settings').hidden) { $('#v-settings').hidden = true; return; }
-    if (!$('#viewer').classList.contains('chrome-hidden')) { showChrome(false); return; }
-    const r = sc.getBoundingClientRect();
-    const topStrip = Math.max(90, r.height * 0.12);
-    if (e.clientY - r.top < topStrip) { showChrome(true); return; }
-    turnPage(e.clientX - r.left < r.width * 0.25 ? -1 : 1);
+    const toggleChrome = () => showChrome($('#viewer').classList.contains('chrome-hidden'));
+    if (fitsOneScreen()) { toggleChrome(); return; }
+    const r = sc.getBoundingClientRect(), x = (e.clientX - r.left) / r.width;
+    if (x < 1 / 3) turnPage(-1);
+    else if (x > 2 / 3) turnPage(1);
+    else toggleChrome();
   });
 
   let resizeTimer = 0;

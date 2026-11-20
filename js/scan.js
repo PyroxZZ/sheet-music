@@ -956,7 +956,7 @@ export function startScan(onDone) {
     else if (act === 'auto') { S.edit.quad = autoQuad(S.edit.canvas); drawQuad(); }
     else if (act === 'mode') {
       S.edit.mode = MODES[(MODES.indexOf(S.edit.mode) + 1) % MODES.length];
-      try { localStorage.setItem('scanMode', S.edit.mode); } catch {}
+      try { localStorage.setItem('scanMode2', S.edit.mode); } catch {}
       syncMode();
     }
     else if (act === 'page-edit') editExisting(+b.dataset.i);
@@ -1072,20 +1072,20 @@ async function openEditor(edit) {
 }
 
 // Page look, chosen per page with the mode button (the last choice is remembered for the next scan):
-//   clean  - cleaned black & white photo (default)
-//   vector - the cleaned page traced into vector outlines: razor sharp at any zoom, like a printed PDF
+//   vector - the cleaned page traced into vector outlines: razor sharp at any zoom, like a printed PDF (default)
+//   clean  - cleaned black & white photo
 //   color  - the original photo colours, just straightened
-const MODES = ['clean', 'vector', 'color'];
+const MODES = ['vector', 'clean', 'color'];
 const MODE_LABEL = { clean: 'Clean B&W', vector: 'Sharp (traced)', color: 'Original colour' };
 const MODE_ICON = { clean: 'file-music', vector: 'scan-line', color: 'image' };
 function lastMode() {
-  try { const m = localStorage.getItem('scanMode'); if (MODES.includes(m)) return m; } catch {}
-  return 'clean';
+  try { const m = localStorage.getItem('scanMode2'); if (MODES.includes(m)) return m; } catch {}
+  return 'vector';
 }
 
 function syncMode() {
   const b = S.root.querySelector('[data-act=mode]');
-  const m = MODES.includes(S.edit.mode) ? S.edit.mode : 'clean';
+  const m = MODES.includes(S.edit.mode) ? S.edit.mode : 'vector';
   b.setAttribute('aria-pressed', String(m !== 'color'));
   b.innerHTML = `${icon(MODE_ICON[m])}<span>${MODE_LABEL[m]}</span>`;
 }

@@ -1,6 +1,6 @@
 // Service worker: makes the app open with no internet.
 // Bump VERSION whenever you change any app file so iPads pick up the update.
-const VERSION = 'v7';
+const VERSION = 'v8';
 const APP_CACHE = `app-${VERSION}`;
 const OCR_CACHE = 'ocr-v1'; // big OCR files, cached the first time OCR is used
 const LIB_CACHE = 'lib-verovio-6.4.1'; // music engraving library for MusicXML (7 MB)
