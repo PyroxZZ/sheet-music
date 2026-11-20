@@ -76,6 +76,8 @@
     <div id="v-scroll"><div id="v-pages"></div></div>
     <!-- Pages layout (iPad): whole pages, one or two at a time -->
     <div id="v-paged"><div id="v-stage"></div></div>
+    <!-- Page list down the left side (Settings > Page list) -->
+    <nav id="v-strip" aria-label="Pages"></nav>
 
     <header class="v-bar v-top">
       <button class="nav-btn" id="v-back" data-icon="chevron-left"><span class="lbl">Library</span></button>
@@ -107,6 +109,7 @@
       </div>
 
       <div class="s-body">
+        <button class="tb-btn primary s-autoplay" id="s-autoplay" data-icon="play"><span>Start auto-scroll</span></button>
         <div class="s-info"><span data-icon="info"></span><p id="s-detected"></p></div>
 
         <h3 class="s-group-title">Tempo</h3>
@@ -163,33 +166,11 @@
           </label>
         </div>
 
-        <h3 class="s-group-title">Display</h3>
-        <div class="s-group">
-          <label class="s-row pdf-only" data-display>
-            <span class="s-label">Layout</span>
-            <span class="s-select"><select id="s-view" aria-label="Layout">
-              <option value="auto">Automatic</option>
-              <option value="pages">Pages</option>
-              <option value="scroll">Scroll</option>
-            </select><span data-icon="chevron-down"></span></span>
-          </label>
-          <label class="s-row pdf-only" data-display>
-            <span class="s-label">Trim page margins</span>
-            <input id="s-trim" class="switch" type="checkbox">
-          </label>
-          <label class="s-row" data-display>
-            <span class="s-label">Stage light</span>
-            <span class="s-select"><select id="s-stage" aria-label="Stage light">
-              <option value="normal">Normal</option>
-              <option value="warm">Warm</option>
-              <option value="dark">Dark (white on black)</option>
-            </select><span data-icon="chevron-down"></span></span>
-          </label>
-        </div>
-        <p class="s-note pdf-only">Pages shows whole pages: one at a time with half-page turns when upright, two side by side when sideways. Automatic uses Pages on iPad and Scroll on iPhone. Display settings apply to all music.</p>
-
         <div class="s-group pdf-only">
           <button class="s-row s-action" id="s-redetect" data-icon="refresh"><span>Re-analyse PDF</span></button>
+        </div>
+        <div class="s-group">
+          <button class="s-row s-action" id="s-more" data-icon="sliders"><span>Settings: page turns, layout, stage light</span></button>
         </div>
       </div>
     </aside>

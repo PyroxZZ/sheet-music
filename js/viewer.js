@@ -21,15 +21,14 @@ import * as db from './db.js';
 import { loadPdf } from './pdf.js';
 import { analyzePdf } from './detect.js';
 import { toast } from './ui.js';
+import { pref } from './prefs.js';
 
-const READING_LINE = 0.3; // the bar being played sits 30% down the screen
+// Where the music being played sits on the screen while scrolling (Settings: higher / middle / lower).
+// Scrolling only starts once the music reaches this line, so the start isn't jammed against the top.
+const readLine = () => parseFloat(pref('readLine')) || 0.45;
 
 const $ = sel => document.querySelector(sel);
 
-// Viewer preferences for all songs (kept on this device).
-const PREF_DEFAULTS = { view: 'auto', trim: '1', stage: 'normal' };
-function pref(k) { try { return localStorage.getItem('pref.' + k) ?? PREF_DEFAULTS[k]; } catch { return PREF_DEFAULTS[k]; } }
-function setPref(k, v) { try { localStorage.setItem('pref.' + k, v); } catch {} }
 // Pages layout: chosen, or automatically on iPad-sized screens.
 function wantPaged() {
   if (!state || state.kind !== 'pdf') return false;
@@ -40,6 +39,7 @@ function applyStage() {
   const v = $('#viewer');
   v.classList.toggle('stage-warm', pref('stage') === 'warm');
   v.classList.toggle('stage-dark', pref('stage') === 'dark');
+  v.classList.toggle('play-hidden', pref('playBtn') !== '1');
 }
 
 let state = null;
@@ -101,7 +101,8 @@ function teardown() {
   if (state.pdf) state.pdf.destroy();
   $('#v-pages').innerHTML = '';
   $('#v-stage').innerHTML = '';
-  $('#viewer').classList.remove('is-paged');
+  $('#v-strip').innerHTML = '';
+  $('#viewer').classList.remove('is-paged', 'has-strip');
   $('#v-pages').hidden = false;
   $('#v-settings').hidden = true;
 }
@@ -172,7 +173,84 @@ async function buildPdfPages() {
     const gaps = pi ? pi.gaps.map(g => (g - crop[1]) / (crop[3] - crop[1])).filter(g => g > 0 && g < 1) : [];
     st.pages.push({ index: i, el, W: vp.width, H: vp.height, crop, ratio, gaps, canvas: null, rendered: 0, task: null });
   }
+  buildStrip();
   setMode();
+}
+
+// ---------- Page list (left side) ----------
+
+const stripOn = () => state.kind === 'pdf' && state.pages.length >= 2 && pref('pageList') === '1' && innerWidth >= 700;
+
+function buildStrip() {
+  const strip = $('#v-strip');
+  strip.innerHTML = '';
+  const on = stripOn();
+  $('#viewer').classList.toggle('has-strip', on);
+  if (!on) return;
+  const st = state;
+  state.pages.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.className = 'vs-item';
+    b.dataset.page = i;
+    b.setAttribute('aria-label', `Page ${i + 1}`);
+    b.innerHTML = `<span class="vs-thumb" style="aspect-ratio:1/${p.ratio.toFixed(4)}"></span><span class="vs-num">${i + 1}</span>`;
+    strip.appendChild(b);
+  });
+  // Small pictures of the pages, drawn after the music itself is on screen.
+  setTimeout(async () => {
+    for (const [i, p] of st.pages.entries()) {
+      if (state !== st) return;
+      const { canvas, task } = drawPage(st, p, 72, 72 * p.ratio);
+      try { await (await task).promise; } catch { continue; }
+      strip.querySelector(`[data-page="${i}"] .vs-thumb`)?.appendChild(canvas);
+    }
+  }, 400);
+  updateStrip();
+}
+
+// Highlight the pages on screen (and the one being played), keeping them in view in the list.
+function updateStrip() {
+  if (!state || !$('#viewer').classList.contains('has-strip')) return;
+  const cur = new Set();
+  let playingPage = -1;
+  const k = keyframes();
+  if (k && (state.playing || state.t > 0)) playingPage = pageAtTime(k, state.t).c;
+  if (state.paged) {
+    for (const it of state.layoutItems || []) cur.add(it.i);
+  } else {
+    const sc = $('#v-scroll'), top = sc.scrollTop, bottom = top + sc.clientHeight;
+    state.pages.forEach((p, i) => { if (p.top < bottom - 40 && p.top + p.h > top + 40) cur.add(i); });
+  }
+  let first = null;
+  for (const b of $('#v-strip').children) {
+    const i = +b.dataset.page;
+    b.classList.toggle('cur', cur.has(i));
+    b.classList.toggle('playing', i === playingPage);
+    if (first == null && cur.has(i)) first = b;
+  }
+  const strip = $('#v-strip');
+  if (first) {
+    const r = first.getBoundingClientRect(), sr = strip.getBoundingClientRect();
+    if (r.top < sr.top + 60 || r.bottom > sr.bottom - 20) strip.scrollTo({ top: first.offsetTop - 70, behavior: 'smooth' });
+  }
+}
+
+// Tap a page in the list: go there (and carry on playing from it).
+function jumpToPage(i) {
+  if (state.paged) {
+    const n = state.pages.length;
+    let c = i;
+    if (spreadOn()) c = pref('spreadTurn') === 'both' ? i - (i % 2) : Math.min(i, Math.max(0, n - 2));
+    state.pv = { c, half: false };
+    setTimeForView();
+    drawPaged();
+  } else {
+    const sc = $('#v-scroll');
+    const topBar = $('#viewer').classList.contains('chrome-hidden') ? 0 : $('#viewer .v-top').offsetHeight;
+    sc.scrollTo({ top: Math.max(0, state.pages[i].top - topBar - sc.clientHeight * 0.04), behavior: 'smooth' });
+    setTimeout(() => { if (state) { syncTimeToScroll(); updateStatus(); updateStrip(); } }, 450);
+  }
+  updateStatus();
 }
 
 // Where the music sits on each page (for trimming margins) and the blank bands between systems.
@@ -234,6 +312,7 @@ function setMode() {
   state.paged = paged;
   $('#viewer').classList.toggle('is-paged', paged);
   $('#v-pages').hidden = paged;
+  $('#viewer').classList.toggle('has-strip', stripOn());
   if (paged) for (const p of state.pages) freeCanvas(p);
   else $('#v-stage').innerHTML = '';
   layout();
@@ -426,6 +505,17 @@ function pdfFrames() {
 function computeFrames() {
   if (!state) return;
   state.frames = state.kind === 'score' ? scoreFrames() : pdfFrames();
+  state.musicEnd = musicEnd();
+}
+
+// Bottom of the last line of music, in scroll coordinates (Scroll layout).
+function musicEnd() {
+  const k = state.frames;
+  if (state.kind === 'score') return k ? k[k.length - 1].y : null;
+  const i = state.pages.length - 1, p = state.pages[i];
+  if (!p || state.paged) return null;
+  const ink = state.song.pageInfo?.pages?.[i]?.crop?.[3] ?? 1;
+  return p.top + cropY(p, ink) * p.h;
 }
 const keyframes = () => state.frames;
 const endTime = k => k[k.length - 1].t;
@@ -458,7 +548,12 @@ function timeAtY(k, y, near = 0) {
 
 function scrollTopForTime(k, t) {
   const sc = $('#v-scroll');
-  return yAtTime(k, t) - sc.clientHeight * READING_LINE;
+  const top = yAtTime(k, t) - sc.clientHeight * readLine();
+  if (state.musicEnd == null) return top;
+  // Stop once the last bar is in view: never scroll the end of the music up into empty space.
+  const v = $('#viewer');
+  const bottomBar = v.classList.contains('chrome-hidden') ? 0 : v.querySelector('.v-bottom').offsetHeight;
+  return Math.min(top, Math.max(0, state.musicEnd + 24 - (sc.clientHeight - bottomBar)));
 }
 
 const clampScroll = (sc, v) => Math.max(0, Math.min(sc.scrollHeight - sc.clientHeight, v));
@@ -471,7 +566,7 @@ function syncTimeToScroll() {
   // ambiguous near the top/bottom, where it can't move any further).
   if (Math.abs(sc.scrollTop - clampScroll(sc, scrollTopForTime(k, state.t))) <= 4) return;
   if (sc.scrollTop <= 1) { state.t = 0; return; } // scrolled right to the top = start of the piece
-  state.t = timeAtY(k, sc.scrollTop + sc.clientHeight * READING_LINE, state.t);
+  state.t = timeAtY(k, sc.scrollTop + sc.clientHeight * readLine(), state.t);
 }
 
 // ---------- Playback ----------
@@ -494,6 +589,8 @@ function play() {
   state.countStart = performance.now();
   state.lastTs = 0;
   acquireWakeLock();
+  $('#viewer').classList.add('is-playing');
+  $('#s-autoplay span').textContent = 'Pause auto-scroll';
   $('#v-play').classList.add('playing');
   $('#v-play').setAttribute('aria-label', 'Pause');
   showChrome(false);
@@ -506,6 +603,8 @@ function stop() {
   cancelAnimationFrame(state.raf);
   $('#v-count').hidden = true;
   $('#v-cursor')?.classList.remove('on');
+  $('#viewer').classList.remove('is-playing');
+  $('#s-autoplay span').textContent = 'Start auto-scroll';
   $('#v-play').classList.remove('playing');
   $('#v-play').setAttribute('aria-label', 'Play');
   releaseWakeLock();
@@ -539,6 +638,7 @@ function tick(ts) {
       if (v.c !== state.pv.c || v.half !== state.pv.half) { state.pv = v; drawPaged(); }
       placeCursor(k);
     } else sc.scrollTop = scrollTopForTime(k, state.t);
+    if (ts - (state.stripTs || 0) > 500) { state.stripTs = ts; updateStrip(); }
   }
   state.lastTs = ts;
   updateStatus();
@@ -677,8 +777,11 @@ function pageAtTime(k, t) {
 function viewForTime(k, t) {
   const { c, f } = pageAtTime(k, t);
   const n = state.pages.length;
-  if (spreadOn()) return { c: Math.min(c, Math.max(0, n - 2)), half: false };
-  return { c, half: c + 1 < n && f >= splitOf(c + 1, true) };
+  if (spreadOn()) {
+    if (pref('spreadTurn') === 'both') return { c: c - (c % 2), half: false }; // pages 1-2, 3-4, ...
+    return { c: Math.min(c, Math.max(0, n - 2)), half: false };
+  }
+  return { c, half: pref('halfTurn') === '1' && c + 1 < n && f >= splitOf(c + 1, true) };
 }
 
 // Where the half-page split falls: a blank band between systems near the middle of the next page.
@@ -759,6 +862,7 @@ async function drawPaged() {
   st.shown = new Set(items.map(it => it.i + (it.clip != null ? 'h' : '')));
   const k = keyframes();
   if (k && st.playing) placeCursor(k);
+  updateStrip();
   // Get the next turn ready in the background, and drop pages that are far away.
   const keep = new Set(items.map(it => `${it.i}:${Math.round(it.w)}x${Math.round(it.h)}`));
   const ahead = spreadOn() ? [c + 2] : [c + 1];
@@ -791,7 +895,11 @@ function pagedTurn(dir) {
   const n = state.pages.length;
   let { c, half } = state.pv;
   if (spreadOn()) {
-    c = Math.max(0, Math.min(Math.max(0, n - 2), c + dir));
+    if (pref('spreadTurn') === 'both') c = Math.max(0, Math.min(n - 1 - ((n - 1) % 2), c + 2 * dir));
+    else c = Math.max(0, Math.min(Math.max(0, n - 2), c + dir));
+    half = false;
+  } else if (pref('halfTurn') !== '1') {
+    c = Math.max(0, Math.min(n - 1, c + dir));
     half = false;
   } else if (dir > 0) {
     if (!half && c + 1 < n) half = true;
@@ -800,16 +908,40 @@ function pagedTurn(dir) {
   else if (c > 0) { c--; half = true; }
   if (c === state.pv.c && half === state.pv.half) return;
   state.pv = { c, half };
-  // Carry on playing from here: the start of the page, or of its second half.
-  const k = keyframes();
-  if (k) {
-    const p = state.pages[c];
-    const y = p.vTop + (half ? splitOf(c + 1, true) : 0) * p.vH + 1;
-    const spb = secondsPerBar(state.song.scroll);
-    state.t = Math.min(endTime(k), Math.ceil(timeAtY(k, y, state.t) / spb - 1e-6) * spb); // from a whole bar
-  }
+  setTimeForView();
   drawPaged();
   updateStatus();
+}
+
+// Carry on playing from the view on screen: the start of the page, or of its second half.
+function setTimeForView() {
+  const k = keyframes();
+  if (!k) return;
+  const { c, half } = state.pv;
+  const p = state.pages[c];
+  const y = p.vTop + (half ? splitOf(c + 1, true) : 0) * p.vH + 1;
+  const spb = secondsPerBar(state.song.scroll);
+  state.t = Math.min(endTime(k), Math.ceil(timeAtY(k, y, state.t) / spb - 1e-6) * spb); // from a whole bar
+}
+
+// Settings changed (Settings page or Tempo & scroll): apply to the open music straight away.
+async function applyPref(key) {
+  if (!state) return;
+  if (key === 'stage' || key === 'playBtn') { applyStage(); return; }
+  if (state.kind !== 'pdf') return;
+  if (key === 'trim') {
+    for (const e of state.pcache.values()) if (e.canvas) e.canvas.width = e.canvas.height = 0;
+    state.pcache.clear();
+    await buildPdfPages();
+  } else if (key === 'view') setMode();
+  else if (key === 'pageList') { buildStrip(); setMode(); }
+  else if (key === 'halfTurn' || key === 'spreadTurn') {
+    const k = keyframes();
+    if (state.paged && k) { state.pv = viewForTime(k, state.t); drawPaged(); }
+  } else if (key === 'readLine') {
+    const k = keyframes();
+    if (k && !state.paged) $('#v-scroll').scrollTop = scrollTopForTime(k, state.t);
+  }
 }
 
 // ---------- Settings panel ----------
@@ -827,26 +959,7 @@ function fillSettings() {
   $('#s-countin').checked = !!s.countIn;
   $('#s-marks').checked = !!s.showMarks;
   $('#s-zoom-val').textContent = Math.round((s.zoom || 1) * 100) + '%';
-  $('#s-view').value = pref('view');
-  $('#s-trim').checked = pref('trim') === '1';
-  $('#s-stage').value = pref('stage');
   renderDetectInfo();
-}
-
-// Display settings apply to every song (stored on the device, not per song).
-async function changeDisplay(e) {
-  const id = e.target.id;
-  if (id === 's-stage') { setPref('stage', e.target.value); applyStage(); return; }
-  if (state.kind !== 'pdf') return;
-  if (id === 's-view') { setPref('view', e.target.value); setMode(); }
-  if (id === 's-trim') {
-    setPref('trim', e.target.checked ? '1' : '0');
-    for (const ent of state.pcache.values()) if (ent.canvas) ent.canvas.width = ent.canvas.height = 0;
-    state.pcache.clear();
-    await buildPdfPages();
-  }
-  const k = keyframes();
-  if (k && !state.paged) $('#v-scroll').scrollTop = scrollTopForTime(k, state.t);
 }
 
 function renderDetectInfo() {
@@ -953,12 +1066,27 @@ export function initViewer() {
     const p = $('#v-settings'); p.hidden = !p.hidden;
   });
   $('#s-close').addEventListener('click', () => { $('#v-settings').hidden = true; });
-  const isDisplay = e => e.target.closest('[data-display]');
-  $('#v-settings').addEventListener('input', e => { if (!e.target.closest('[data-zoom]') && !isDisplay(e)) readSettings(); });
-  $('#v-settings').addEventListener('change', e => {
-    if (isDisplay(e)) { changeDisplay(e); return; }
-    if (!e.target.closest('[data-zoom]')) readSettings();
+  $('#v-settings').addEventListener('input', e => { if (!e.target.closest('[data-zoom]')) readSettings(); });
+  $('#v-settings').addEventListener('change', e => { if (!e.target.closest('[data-zoom]')) readSettings(); });
+  $('#s-autoplay').addEventListener('click', () => {
+    $('#v-settings').hidden = true;
+    if (state.playing) { stop(); showChrome(true); } else play();
   });
+  $('#s-more').addEventListener('click', async () => {
+    const { openSettings } = await import('./settings.js');
+    openSettings();
+  });
+  window.addEventListener('prefchange', e => applyPref(e.detail));
+  $('#v-strip').addEventListener('click', e => {
+    const b = e.target.closest('[data-page]');
+    if (b && state) jumpToPage(+b.dataset.page);
+  });
+  sc.addEventListener('scroll', () => {
+    if (state && !state.playing && !state.stripPending) {
+      state.stripPending = true;
+      requestAnimationFrame(() => { if (state) { state.stripPending = false; updateStrip(); } });
+    }
+  }, { passive: true });
   for (const btn of document.querySelectorAll('[data-bpm]')) {
     btn.addEventListener('click', () => {
       const cur = parseFloat($('#s-bpm').value) || 100;
@@ -996,8 +1124,9 @@ export function initViewer() {
     const toggleChrome = () => showChrome($('#viewer').classList.contains('chrome-hidden'));
     if (fitsOneScreen()) { toggleChrome(); return; }
     const r = e.currentTarget.getBoundingClientRect(), x = (e.clientX - r.left) / r.width;
-    if (x < 1 / 3) turnPage(-1);
-    else if (x > 2 / 3) turnPage(1);
+    const next = pref('swapTaps') === '1' ? -1 : 1; // Settings: which side means "next page"
+    if (x < 1 / 3) turnPage(-next);
+    else if (x > 2 / 3) turnPage(next);
     else toggleChrome();
   };
   for (const el of [sc, $('#v-paged')]) {
@@ -1008,9 +1137,9 @@ export function initViewer() {
   let resizeTimer = 0;
   window.addEventListener('resize', () => {
     if (!state) return;
-    if (state.kind === 'pdf' && (wantPaged() !== state.paged || state.paged)) {
+    if (state.kind === 'pdf' && (wantPaged() !== state.paged || state.paged || stripOn() !== $('#viewer').classList.contains('has-strip'))) {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { if (state) setMode(); }, 150); // rotated: book spread <-> single page
+      resizeTimer = setTimeout(() => { if (state) { if (stripOn() !== $('#viewer').classList.contains('has-strip')) buildStrip(); setMode(); } }, 150); // rotated: book spread <-> single page
       return;
     }
     syncTimeToScroll();

@@ -22,7 +22,7 @@ export function toast(message, { sticky = false, ms = 2500 } = {}) {
 }
 
 // kind: 'alert' (centred card) or 'sheet' (action sheet: bottom on phones, centred on iPad)
-function dialog(html, setup, kind = 'alert') {
+export function dialog(html, setup, kind = 'alert') {
   return new Promise(resolve => {
     const d = document.createElement('dialog');
     d.className = `dlg dlg-${kind}`;

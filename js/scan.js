@@ -893,7 +893,7 @@ function free(canvas) { if (canvas) canvas.width = canvas.height = 0; }
 
 let S = null; // current session
 
-export function startScan(onDone) {
+export function startScan(onDone, files = []) {
   if (S) return;
   const root = document.createElement('div');
   root.className = 'scan';
@@ -974,6 +974,8 @@ export function startScan(onDone) {
   setupHandles();
   window.addEventListener('resize', onResize);
   renderPages();
+  // Photos chosen with Import (e.g. pictures sent to the phone) go straight to corner adjustment.
+  if (files.length) { S.queue.push(...files); nextInQueue(); }
 }
 
 function onResize() { if (S && S.edit) layoutCrop(); }

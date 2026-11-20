@@ -288,10 +288,18 @@ async function importScore(bytes, fileTitle, format) {
 
 async function importFiles(files) {
   const { isScoreFile, formatOf } = await import('./score.js');
+  // Photos / images: open them in the scanner so they get straightened and cleaned like a scan.
+  const isImage = f => /^image\//i.test(f.type) || /\.(jpe?g|png|heic|heif|webp|gif|bmp)$/i.test(f.name);
+  const images = [...files].filter(isImage);
+  files = [...files].filter(f => !isImage(f));
+  if (images.length) {
+    const { startScan } = await import('./scan.js');
+    startScan((bytes, title) => importBytes(bytes, title), images);
+  }
   for (const file of files) {
     const title = file.name.replace(/\.(pdf|musicxml|xml|mxl)$/i, '').replace(/[_]+/g, ' ').trim();
     if (isScoreFile(file.name)) { await importScore(await file.arrayBuffer(), title, formatOf(file.name)); continue; }
-    if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast(`${file.name} is not a PDF or MusicXML file`); continue; }
+    if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast(`${file.name} is not a PDF, photo or MusicXML file`); continue; }
     await importBytes(await file.arrayBuffer(), title);
   }
 }
@@ -493,10 +501,12 @@ async function appMenu() {
     storage = `${(est.usage / 1048576).toFixed(1)} MB stored on this device${persisted ? ' · persistent storage' : ''}`;
   } catch {}
   const choice = await menu('Library', [
+    { label: 'Settings', value: 'settings', icon: 'sliders' },
     { label: 'New setlist', value: 'setlist', icon: 'list-plus' },
     { label: 'Back up library (save to Files)', value: 'export', icon: 'download' },
     { label: 'Restore from backup…', value: 'import', icon: 'upload' },
   ], { message: storage });
+  if (choice === 'settings') import('./settings.js').then(m => m.openSettings());
   if (choice === 'setlist') newSetlist();
   if (choice === 'export') exportBackup();
   if (choice === 'import') $('#backup-input').click();
