@@ -1,6 +1,6 @@
 // Photo scanner: photograph sheet music page by page -> find the paper edges -> straighten the page
-// -> clean it to crisp black on white -> trace the ink into vector outlines (so it looks and zooms like a
-// real PDF) -> combine all pages into one PDF that is stored like any import.
+// -> clean it to crisp black on white (optionally traced into vector outlines, so it looks and zooms like
+// a real PDF) -> combine all pages into one PDF that is stored like any import.
 //
 // Everything runs on the device (no internet needed).
 import { icon } from './icons.js';
@@ -757,7 +757,7 @@ function cleanGray(gray, W, H) {
 // =====================================================================================
 
 // Flatten (perspective + page curl + tilt) a photo region into an upright page.
-// mode 'clean' -> black & white scan look, anything else -> original colours.
+// mode 'clean' / 'vector' -> black & white scan look, anything else -> original colours.
 // Returns { data (RGBA), width, height, info }. Yields to the UI between the heavy steps.
 export async function processPage(img, quad, mode = 'clean', opts = {}) {
   const T0 = performance.now();
@@ -771,7 +771,7 @@ export async function processPage(img, quad, mode = 'clean', opts = {}) {
   info.tFlatten = Math.round(performance.now() - T0);
   await tick();
   let out, gray = null;
-  if (mode === 'clean') {
+  if (mode === 'clean' || mode === 'vector') {
     const g = render(srcGray, SW, SH, 1, hm, w, h, w, h, map || identityMap, true);
     info.tRender = Math.round(performance.now() - T0);
     await tick();
@@ -954,7 +954,11 @@ export function startScan(onDone) {
     else if (act === 'rotate') rotate();
     else if (act === 'reset') { const { width: w, height: h } = S.edit.canvas; S.edit.quad = [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]; drawQuad(); }
     else if (act === 'auto') { S.edit.quad = autoQuad(S.edit.canvas); drawQuad(); }
-    else if (act === 'mode') { S.edit.mode = S.edit.mode === 'clean' ? 'color' : 'clean'; syncMode(); }
+    else if (act === 'mode') {
+      S.edit.mode = MODES[(MODES.indexOf(S.edit.mode) + 1) % MODES.length];
+      try { localStorage.setItem('scanMode', S.edit.mode); } catch {}
+      syncMode();
+    }
     else if (act === 'page-edit') editExisting(+b.dataset.i);
     else if (act === 'page-delete') deletePage(+b.dataset.i);
     else if (act === 'page-left') movePage(+b.dataset.i, -1);
@@ -1041,7 +1045,7 @@ async function nextInQueue() {
   try {
     const img = await loadImage(file);
     const canvas = canvasFrom(img, MAX_SRC);
-    openEditor({ canvas, quad: autoQuad(canvas), mode: 'clean', source: file, rotation: 0, index: -1 });
+    openEditor({ canvas, quad: autoQuad(canvas), mode: lastMode(), source: file, rotation: 0, index: -1 });
   } catch (e) {
     toast(e.message);
     nextInQueue();
@@ -1067,10 +1071,23 @@ async function openEditor(edit) {
   syncMode();
 }
 
+// Page look, chosen per page with the mode button (the last choice is remembered for the next scan):
+//   clean  - cleaned black & white photo (default)
+//   vector - the cleaned page traced into vector outlines: razor sharp at any zoom, like a printed PDF
+//   color  - the original photo colours, just straightened
+const MODES = ['clean', 'vector', 'color'];
+const MODE_LABEL = { clean: 'Clean B&W', vector: 'Sharp (traced)', color: 'Original colour' };
+const MODE_ICON = { clean: 'file-music', vector: 'scan-line', color: 'image' };
+function lastMode() {
+  try { const m = localStorage.getItem('scanMode'); if (MODES.includes(m)) return m; } catch {}
+  return 'clean';
+}
+
 function syncMode() {
   const b = S.root.querySelector('[data-act=mode]');
-  b.setAttribute('aria-pressed', String(S.edit.mode === 'clean'));
-  b.querySelector('span').textContent = S.edit.mode === 'clean' ? 'Clean B&W' : 'Original colour';
+  const m = MODES.includes(S.edit.mode) ? S.edit.mode : 'clean';
+  b.setAttribute('aria-pressed', String(m !== 'color'));
+  b.innerHTML = `${icon(MODE_ICON[m])}<span>${MODE_LABEL[m]}</span>`;
 }
 
 function layoutCrop() {
@@ -1172,11 +1189,11 @@ async function cropDone() {
     const out = document.createElement('canvas');
     out.width = flat.width; out.height = flat.height;
     out.getContext('2d').putImageData(new ImageData(flat.data, flat.width, flat.height), 0, 0);
-    const jpeg = await toBlob(out, e.mode === 'clean' ? 0.8 : 0.85);
+    const jpeg = await toBlob(out, e.mode === 'color' ? 0.85 : 0.8);
     free(out);
-    // Clean pages are saved as vector outlines (the JPEG stays as the preview / fallback).
+    // 'Sharp (traced)' pages are saved as vector outlines (the JPEG stays as the preview / fallback).
     let vector = null;
-    if (flat.gray) {
+    if (e.mode === 'vector' && flat.gray) {
       try { vector = await vectorPageContent(flat.gray, flat.width, flat.height); }
       catch (err) { console.warn('Vector trace failed, keeping the image', err); }
     }
