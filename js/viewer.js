@@ -707,8 +707,17 @@ function fitsOneScreen() {
 // Scroll layout: move on by most of a screen, keeping the last lines you read at the top for context,
 // and land the next page (PDF) or the next line of music (MusicXML) a little below the top edge,
 // not jammed against it.
+// Setlist: at the end (or start) of a song, a page turn moves on to the next (or previous) song.
 function turnPage(dir) {
-  if (state.paged) { pagedTurn(dir); return; }
+  if (!turnWithinSong(dir) && state.playlist?.setlist) {
+    const { prev, next } = siblings();
+    if (dir > 0 ? next : prev) switchSong(dir);
+  }
+}
+
+// Returns false when there is no further page in that direction.
+function turnWithinSong(dir) {
+  if (state.paged) return pagedTurn(dir);
   const sc = $('#v-scroll');
   const chromeShown = !$('#viewer').classList.contains('chrome-hidden');
   const topBar = chromeShown ? $('#viewer .v-top').offsetHeight : 0;
@@ -740,7 +749,7 @@ function turnPage(dir) {
   }
   if (best != null) to = best;
   to = Math.max(0, Math.min(sc.scrollHeight - sc.clientHeight, to));
-  if (Math.abs(to - from) < 2) return;
+  if (Math.abs(to - from) < 2) return false;
   cancelAnimationFrame(pageAnim);
   const start = performance.now(), dur = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320;
   const ease = x => 1 - Math.pow(1 - x, 3);
@@ -754,6 +763,7 @@ function turnPage(dir) {
     }
   };
   pageAnim = requestAnimationFrame(stepFn);
+  return true;
 }
 
 // ---------- Pages layout (iPad) ----------
@@ -906,11 +916,12 @@ function pagedTurn(dir) {
     else if (half) { c++; half = false; }
   } else if (half) half = false;
   else if (c > 0) { c--; half = true; }
-  if (c === state.pv.c && half === state.pv.half) return;
+  if (c === state.pv.c && half === state.pv.half) return false;
   state.pv = { c, half };
   setTimeForView();
   drawPaged();
   updateStatus();
+  return true;
 }
 
 // Carry on playing from the view on screen: the start of the page, or of its second half.
@@ -1122,7 +1133,9 @@ export function initViewer() {
     if (dt > 300 || Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
     if (!$('#v-settings').hidden) { $('#v-settings').hidden = true; return; }
     const toggleChrome = () => showChrome($('#viewer').classList.contains('chrome-hidden'));
-    if (fitsOneScreen()) { toggleChrome(); return; }
+    // Music fits on one screen: nothing to turn, so a tap anywhere toggles the toolbars,
+    // except in a setlist, where the sides still move to the next / previous song.
+    if (fitsOneScreen() && !state.playlist?.setlist) { toggleChrome(); return; }
     const r = e.currentTarget.getBoundingClientRect(), x = (e.clientX - r.left) / r.width;
     const next = pref('swapTaps') === '1' ? -1 : 1; // Settings: which side means "next page"
     if (x < 1 / 3) turnPage(-next);

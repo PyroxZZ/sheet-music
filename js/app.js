@@ -361,6 +361,8 @@ async function setlistMenu(id) {
 }
 
 function openSong(song, playlist) {
+  // In a setlist, turning past the last page opens the next song (see viewer.js turnPage).
+  playlist = Object.assign([...playlist], { setlist: !!state.setlistId });
   openViewer(song, reload, playlist).catch(err => { console.error(err); toast('Could not open: ' + err.message); });
 }
 
