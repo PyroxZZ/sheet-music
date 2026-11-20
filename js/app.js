@@ -83,6 +83,7 @@ function render() {
   }
   folders = sortFolders(folders);
   songs = sortSongs(songs);
+  state.visibleSongs = songs; // the order next/previous song follows in the viewer
 
   const pathLabel = id => folderPath(id).map(f => f.name).join(' / ') || 'Library';
   const folderCards = folders.map(f => {
@@ -97,7 +98,9 @@ function render() {
   });
   const songCards = songs.map(s => {
     const sc = s.scroll || {};
-    const info = [sc.bpm ? `${sc.bpm} BPM` : 'No tempo', `${s.pageCount} ${s.pageCount === 1 ? 'page' : 'pages'}`];
+    const info = s.kind === 'score'
+      ? ['MusicXML', sc.bpm ? `${sc.bpm} BPM` : 'No tempo']
+      : [sc.bpm ? `${sc.bpm} BPM` : 'No tempo', `${s.pageCount} ${s.pageCount === 1 ? 'page' : 'pages'}`];
     return `
       <div class="card song" data-open-song="${s.id}">
         <div class="thumb">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="thumb-ph">${icon('file-music')}</span>`}</div>
@@ -125,6 +128,20 @@ function render() {
          <button class="tb-btn primary" data-empty-action="import">${icon('file-up')}<span class="lbl">Import PDF</span></button>
          <button class="tb-btn" data-empty-action="scan">${icon('scan-line')}<span class="lbl">Scan</span></button>
        </div>`;
+}
+
+// Slide the folder contents in, like iOS navigation: 1 = into a folder, -1 = back out.
+function slide(dir) {
+  for (const el of [$('#grid'), $('#empty'), $('#crumbs')]) {
+    el.classList.remove('nav-in-fwd', 'nav-in-back');
+    void el.offsetWidth;
+    el.classList.add(dir > 0 ? 'nav-in-fwd' : 'nav-in-back');
+  }
+  clearTimeout(slide.timer);
+  slide.timer = setTimeout(() => {
+    for (const el of [$('#grid'), $('#empty'), $('#crumbs')]) el.classList.remove('nav-in-fwd', 'nav-in-back');
+  }, 600);
+  window.scrollTo({ top: 0 });
 }
 
 // ---------- Actions ----------
@@ -163,10 +180,43 @@ async function importBytes(bytes, title) {
   await reload();
 }
 
+// Store a MusicXML score (.musicxml / .xml / .mxl). The notes are redrawn by Verovio when opened.
+async function importScore(bytes, fileTitle, format) {
+  const t = toast(`Importing ${fileTitle}…`, { sticky: true });
+  try {
+    const score = await import('./score.js');
+    t.update(`${fileTitle}: reading notes…`);
+    const info = await score.scoreSummary(bytes, format);
+    const thumb = await score.scoreThumbnail(bytes, format);
+    const title = (format === 'xml' && score.titleFromXml(bytes)) || fileTitle;
+    const song = {
+      id: db.uid(),
+      kind: 'score',
+      format,
+      title,
+      folderId: state.folderId,
+      createdAt: Date.now(),
+      lastOpened: 0,
+      pageCount: 0,
+      bars: info.bars,
+      thumb,
+      scroll: { bpm: info.bpm, baseTempo: info.bpm, beatsPerBar: info.beatsPerBar, beatUnit: 4, tempoUnit: 1, countIn: true, zoom: 1 },
+    };
+    await db.addSong(song, bytes);
+    t.update(`Added “${song.title}” · ${info.bpm} BPM · ${info.bars} bars`, 2500);
+  } catch (e) {
+    console.error(e);
+    t.update(`Could not import ${fileTitle}: ${e.message || e}`, 4000);
+  }
+  await reload();
+}
+
 async function importFiles(files) {
+  const { isScoreFile, formatOf } = await import('./score.js');
   for (const file of files) {
-    if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast(`${file.name} is not a PDF`); continue; }
-    const title = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
+    const title = file.name.replace(/\.(pdf|musicxml|xml|mxl)$/i, '').replace(/[_]+/g, ' ').trim();
+    if (isScoreFile(file.name)) { await importScore(await file.arrayBuffer(), title, formatOf(file.name)); continue; }
+    if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast(`${file.name} is not a PDF or MusicXML file`); continue; }
     await importBytes(await file.arrayBuffer(), title);
   }
 }
@@ -329,7 +379,7 @@ function init() {
 
   $('#crumbs').addEventListener('click', e => {
     const b = e.target.closest('[data-folder]');
-    if (b) { state.folderId = b.dataset.folder || null; render(); }
+    if (b && (b.dataset.folder || null) !== state.folderId) { state.folderId = b.dataset.folder || null; render(); slide(-1); }
   });
   $('#grid').addEventListener('click', e => {
     const fm = e.target.closest('[data-folder-menu]');
@@ -337,11 +387,11 @@ function init() {
     const sm = e.target.closest('[data-song-menu]');
     if (sm) { e.stopPropagation(); return songMenu(sm.dataset.songMenu); }
     const f = e.target.closest('[data-open-folder]');
-    if (f) { state.folderId = f.dataset.openFolder; state.query = ''; $('#search').value = ''; render(); return; }
+    if (f) { state.folderId = f.dataset.openFolder; state.query = ''; $('#search').value = ''; render(); slide(1); return; }
     const s = e.target.closest('[data-open-song]');
     if (s) {
       const song = state.songs.find(x => x.id === s.dataset.openSong);
-      openViewer(song, reload).catch(err => { console.error(err); toast('Could not open: ' + err.message); });
+      openViewer(song, reload, state.visibleSongs || []).catch(err => { console.error(err); toast('Could not open: ' + err.message); });
     }
   });
 

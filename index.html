@@ -11,7 +11,9 @@
   <!-- iOS: run full screen when added to the Home Screen -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <!-- "default" gives the iOS status bar its own solid background (from theme-color) instead of
+       drawing it over the app with a dark gradient behind the clock. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Sheet Music">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" href="icons/icon-192.png">
@@ -29,7 +31,7 @@
         <div class="actions" role="toolbar" aria-label="Library">
           <button class="tb-btn" id="btn-scan" data-icon="scan-line"><span class="lbl">Scan</span></button>
           <button class="tb-btn" id="btn-folder" data-icon="folder-plus"><span class="lbl">New folder</span></button>
-          <button class="tb-btn primary" id="btn-import" data-icon="file-up"><span class="lbl">Import PDF</span></button>
+          <button class="tb-btn primary" id="btn-import" data-icon="file-up"><span class="lbl">Import</span></button>
           <button class="tb-btn round" id="btn-menu" data-icon="more" aria-label="Library options"></button>
         </div>
       </div>
@@ -62,7 +64,8 @@
     <section id="grid" class="grid"></section>
     <div id="empty" class="empty" hidden></div>
 
-    <input id="file-input" type="file" accept="application/pdf,.pdf" multiple hidden>
+    <!-- No accept filter: iOS greys out MusicXML files it doesn't recognise. We check the type ourselves. -->
+    <input id="file-input" type="file" multiple hidden>
     <input id="backup-input" type="file" accept="application/json,.json" hidden>
   </main>
 
@@ -72,7 +75,11 @@
 
     <header class="v-bar v-top">
       <button class="nav-btn" id="v-back" data-icon="chevron-left"><span class="lbl">Library</span></button>
-      <div id="v-title"></div>
+      <div class="v-songnav">
+        <button class="nav-btn icon-only" id="v-prev" data-icon="circle-chevron-left" aria-label="Previous song"></button>
+        <div class="v-titlewrap"><div id="v-title"></div><div id="v-pos"></div></div>
+        <button class="nav-btn icon-only" id="v-next" data-icon="circle-chevron-right" aria-label="Next song"></button>
+      </div>
       <button class="nav-btn" id="v-gear" data-icon="sliders" aria-label="Tempo and scroll settings"><span class="lbl">Tempo &amp; scroll</span></button>
     </header>
 
@@ -112,11 +119,11 @@
               <button type="button" class="step-btn" data-bpm="5" aria-label="Plus 5 BPM">+5</button>
             </span>
           </div>
-          <label class="s-row">
+          <label class="s-row pdf-only">
             <span class="s-label">Beat note</span>
             <span class="s-select"><select id="s-unit"></select><span data-icon="chevron-down"></span></span>
           </label>
-          <div class="s-row">
+          <div class="s-row pdf-only">
             <span class="s-label">Time signature</span>
             <span class="timesig">
               <input id="s-num" type="number" inputmode="numeric" min="1" max="32" aria-label="Beats per bar">
@@ -130,7 +137,15 @@
 
         <h3 class="s-group-title">Scrolling</h3>
         <div class="s-group">
-          <label class="s-row">
+          <div class="s-row score-only">
+            <span class="s-label">Note size</span>
+            <span class="stepper small" role="group" aria-label="Note size">
+              <button type="button" class="step-btn" data-zoom="-0.1" aria-label="Smaller notes" data-icon="minus"></button>
+              <span id="s-zoom-val" class="zoom-val">100%</span>
+              <button type="button" class="step-btn" data-zoom="0.1" aria-label="Bigger notes" data-icon="plus"></button>
+            </span>
+          </div>
+          <label class="s-row pdf-only">
             <span class="s-label">Total bars</span>
             <input id="s-bars" type="number" inputmode="numeric" min="1" placeholder="Auto">
           </label>
@@ -138,13 +153,13 @@
             <span class="s-label">One-bar count-in</span>
             <input id="s-countin" class="switch" type="checkbox">
           </label>
-          <label class="s-row">
+          <label class="s-row pdf-only">
             <span class="s-label">Show detected bar markers</span>
             <input id="s-marks" class="switch" type="checkbox">
           </label>
         </div>
 
-        <div class="s-group">
+        <div class="s-group pdf-only">
           <button class="s-row s-action" id="s-redetect" data-icon="refresh"><span>Re-analyse PDF</span></button>
         </div>
       </div>

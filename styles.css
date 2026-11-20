@@ -588,3 +588,67 @@ input.switch:checked::before { transform: translateX(20px); }
 }
 @keyframes sheet-up { from { opacity: 0; transform: translateY(48px); } }
 @keyframes sheet-down { to { opacity: 0; transform: translateY(48px); } }
+
+/* =====================================================================
+   Song navigation, MusicXML scores, navigation animations
+   ===================================================================== */
+
+/* Top bar centre: previous song · title (+ "3 of 8") · next song */
+.v-songnav {
+  position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px; max-width: calc(100% - 2 * 180px); min-width: 0;
+}
+.v-titlewrap { min-width: 0; display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+#v-title {
+  position: static; transform: none; height: auto; line-height: 1.2; max-width: 100%;
+  pointer-events: none;
+}
+#v-pos { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+#v-pos:empty { display: none; }
+.nav-btn.icon-only { width: var(--tap); height: var(--tap); padding: 0; justify-content: center; flex: none; }
+.nav-btn.icon-only .ic { width: 24px; height: 24px; }
+.nav-btn:disabled { opacity: .25; pointer-events: none; }
+@media (max-width: 700px) {
+  .v-songnav { max-width: calc(100% - 2 * 104px); }
+  #v-title { max-width: 100%; }
+}
+
+/* Settings rows that only apply to one kind of music */
+#viewer.is-score .pdf-only { display: none !important; }
+#viewer:not(.is-score) .score-only { display: none !important; }
+.zoom-val { min-width: 56px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* MusicXML: engraved notes on white */
+.v-score { overflow: visible; }
+.v-score svg { display: block; width: 100%; height: auto; color: #000; }
+.v-score g.measure.cur .note, .v-score g.measure.cur .rest, .v-score g.measure.cur .chord { fill: #0a5bd8; color: #0a5bd8; }
+.v-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 18vh 16px; color: #6b7080; }
+.v-loading .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(0,0,0,.12); border-top-color: #0a5bd8; animation: v-spin .8s linear infinite; }
+@keyframes v-spin { to { transform: rotate(360deg); } }
+
+/* Opening / closing the music, switching songs */
+#viewer.v-enter { animation: v-enter .32s var(--ease-out) both; }
+#viewer.v-leave { animation: v-leave .22s var(--ease) both; }
+@keyframes v-enter { from { opacity: 0; transform: translateY(28px) scale(.985); } }
+@keyframes v-leave { to { opacity: 0; transform: translateY(20px) scale(.985); } }
+#v-pages.v-next { animation: v-from-right .3s var(--ease-out) both; }
+#v-pages.v-prev { animation: v-from-left .3s var(--ease-out) both; }
+@keyframes v-from-right { from { opacity: 0; transform: translateX(48px); } }
+@keyframes v-from-left { from { opacity: 0; transform: translateX(-48px); } }
+
+/* Library: slide folder contents in like an iOS navigation push / pop */
+.nav-in-fwd { animation: nav-in-fwd .3s var(--ease-out) both; }
+.nav-in-back { animation: nav-in-back .3s var(--ease-out) both; }
+@keyframes nav-in-fwd { from { opacity: 0; transform: translateX(40px); } }
+@keyframes nav-in-back { from { opacity: 0; transform: translateX(-40px); } }
+#grid[class*="nav-in"] .card { animation: card-in .35s var(--ease-out) both; }
+#grid[class*="nav-in"] .card:nth-child(2) { animation-delay: .03s; }
+#grid[class*="nav-in"] .card:nth-child(3) { animation-delay: .06s; }
+#grid[class*="nav-in"] .card:nth-child(4) { animation-delay: .09s; }
+#grid[class*="nav-in"] .card:nth-child(n+5) { animation-delay: .12s; }
+@keyframes card-in { from { opacity: 0; transform: translateY(8px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  #viewer.v-enter, #viewer.v-leave, #v-pages.v-next, #v-pages.v-prev,
+  .nav-in-fwd, .nav-in-back, #grid .card { animation: none !important; }
+}

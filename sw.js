@@ -1,8 +1,10 @@
 // Service worker: makes the app open with no internet.
 // Bump VERSION whenever you change any app file so iPads pick up the update.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const APP_CACHE = `app-${VERSION}`;
 const OCR_CACHE = 'ocr-v1'; // big OCR files, cached the first time OCR is used
+const LIB_CACHE = 'lib-verovio-6.4.1'; // music engraving library for MusicXML (7 MB)
+const LIB_FILES = ['./vendor/verovio/verovio.mjs', './vendor/verovio/verovio-module.mjs'];
 
 const APP_FILES = [
   './',
@@ -12,6 +14,7 @@ const APP_FILES = [
   './manifest.webmanifest',
   './js/icons.js',
   './js/scan.js',
+  './js/score.js',
   './js/app.js',
   './js/db.js',
   './js/pdf.js',
@@ -30,12 +33,14 @@ self.addEventListener('install', event => {
   event.waitUntil(caches.open(APP_CACHE)
     .then(c => c.addAll(APP_FILES.map(u => new Request(u, { cache: 'reload' }))))
     .then(() => self.skipWaiting()));
+  // Also fetch the MusicXML engraver in the background so scores work offline (not fatal if it fails).
+  caches.open(LIB_CACHE).then(async c => { for (const u of LIB_FILES) if (!(await c.match(u))) await c.add(u).catch(() => {}); });
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     for (const key of await caches.keys()) {
-      if (key !== APP_CACHE && key !== OCR_CACHE) await caches.delete(key);
+      if (key !== APP_CACHE && key !== OCR_CACHE && key !== LIB_CACHE) await caches.delete(key);
     }
     await self.clients.claim();
   })());
@@ -47,10 +52,11 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  if (url.pathname.includes('/vendor/tesseract/')) {
-    // Cache-first, filled on first use.
+  const big = url.pathname.includes('/vendor/tesseract/') ? OCR_CACHE : url.pathname.includes('/vendor/verovio/') ? LIB_CACHE : null;
+  if (big) {
+    // Large libraries: cache-first, filled on first use.
     event.respondWith((async () => {
-      const cache = await caches.open(OCR_CACHE);
+      const cache = await caches.open(big);
       const hit = await cache.match(req);
       if (hit) return hit;
       const res = await fetch(req);
