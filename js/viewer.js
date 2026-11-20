@@ -631,7 +631,9 @@ export function initViewer() {
   sc.addEventListener('touchend', release, { passive: true });
   sc.addEventListener('touchcancel', release, { passive: true });
 
-  // Taps on the music:  top strip = show/hide toolbars,  left quarter = previous page,  rest = next page.
+  // Taps on the music (like the Books app):
+  //   toolbars showing -> any tap hides them (no page turn)
+  //   toolbars hidden  -> top strip shows them, left quarter = previous page, rest = next page
   // Horizontal swipe = next / previous song.
   let downAt = 0, downX = 0, downY = 0;
   sc.addEventListener('pointerdown', e => { downAt = Date.now(); downX = e.clientX; downY = e.clientY; });
@@ -641,9 +643,10 @@ export function initViewer() {
     if (dt < 600 && Math.abs(dx) > 80 && Math.abs(dy) < 50) { switchSong(dx < 0 ? 1 : -1); return; }
     if (dt > 300 || Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
     if (!$('#v-settings').hidden) { $('#v-settings').hidden = true; return; }
+    if (!$('#viewer').classList.contains('chrome-hidden')) { showChrome(false); return; }
     const r = sc.getBoundingClientRect();
     const topStrip = Math.max(90, r.height * 0.12);
-    if (e.clientY - r.top < topStrip) { showChrome($('#viewer').classList.contains('chrome-hidden')); return; }
+    if (e.clientY - r.top < topStrip) { showChrome(true); return; }
     turnPage(e.clientX - r.left < r.width * 0.25 ? -1 : 1);
   });
 
