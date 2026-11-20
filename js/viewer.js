@@ -21,7 +21,7 @@ import * as db from './db.js';
 import { loadPdf } from './pdf.js';
 import { analyzePdf } from './detect.js';
 import { toast } from './ui.js';
-import { pref } from './prefs.js';
+import { pref, setPref } from './prefs.js';
 
 // Where the music being played sits on the screen while scrolling (Settings: higher / middle / lower).
 // Scrolling only starts once the music reaches this line, so the start isn't jammed against the top.
@@ -102,7 +102,7 @@ function teardown() {
   $('#v-pages').innerHTML = '';
   $('#v-stage').innerHTML = '';
   $('#v-strip').innerHTML = '';
-  $('#viewer').classList.remove('is-paged', 'has-strip');
+  $('#viewer').classList.remove('is-paged', 'has-strip', 'can-spread');
   $('#v-pages').hidden = false;
   $('#v-settings').hidden = true;
 }
@@ -313,6 +313,7 @@ function setMode() {
   $('#viewer').classList.toggle('is-paged', paged);
   $('#v-pages').hidden = paged;
   $('#viewer').classList.toggle('has-strip', stripOn());
+  if (!paged) $('#viewer').classList.remove('can-spread');
   if (paged) for (const p of state.pages) freeCanvas(p);
   else $('#v-stage').innerHTML = '';
   layout();
@@ -770,7 +771,7 @@ function turnWithinSong(dir) {
 
 const spreadOn = () => {
   const st = $('#v-stage');
-  return st.clientWidth > st.clientHeight && state.pages.length >= 2;
+  return pref('spread') !== '1' && st.clientWidth > st.clientHeight && state.pages.length >= 2;
 };
 
 // Which page (and fraction of it) is being played at time t.
@@ -831,6 +832,9 @@ async function drawPaged() {
   const W = stage.clientWidth, H = stage.clientHeight;
   if (!W || !H) return;
   const n = st.pages.length;
+  // Sideways with 2+ pages: offer the 1 page / 2 pages switch in the bottom bar.
+  $('#viewer').classList.toggle('can-spread', W > H && n >= 2);
+  for (const b of document.querySelectorAll('#v-spread [data-spread]')) b.classList.toggle('on', b.dataset.spread === pref('spread'));
   const { c, half } = st.pv;
   const items = []; // { i, x, y, w, h, clip }
   if (spreadOn()) {
@@ -946,9 +950,9 @@ async function applyPref(key) {
     await buildPdfPages();
   } else if (key === 'view') setMode();
   else if (key === 'pageList') { buildStrip(); setMode(); }
-  else if (key === 'halfTurn' || key === 'spreadTurn') {
+  else if (key === 'halfTurn' || key === 'spreadTurn' || key === 'spread') {
     const k = keyframes();
-    if (state.paged && k) { state.pv = viewForTime(k, state.t); drawPaged(); }
+    if (state.paged) { state.pv = k ? viewForTime(k, state.t) : { c: state.pv.c, half: false }; drawPaged(); }
   } else if (key === 'readLine') {
     const k = keyframes();
     if (k && !state.paged) $('#v-scroll').scrollTop = scrollTopForTime(k, state.t);
@@ -1088,6 +1092,10 @@ export function initViewer() {
     openSettings();
   });
   window.addEventListener('prefchange', e => applyPref(e.detail));
+  $('#v-spread').addEventListener('click', e => {
+    const b = e.target.closest('[data-spread]');
+    if (b) setPref('spread', b.dataset.spread);
+  });
   $('#v-strip').addEventListener('click', e => {
     const b = e.target.closest('[data-page]');
     if (b && state) jumpToPage(+b.dataset.page);

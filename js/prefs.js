@@ -6,6 +6,7 @@ const DEFAULTS = {
   trim: '1',           // trim white page margins
   stage: 'normal',     // stage light: normal | warm | dark
   halfTurn: '1',       // upright Pages layout: half-page turns (1) or whole pages (0)
+  spread: '2',         // sideways Pages layout: two pages side by side (2) or one page (1)
   spreadTurn: 'one',   // sideways Pages layout: turn one page (one) or both pages (both)
   swapTaps: '0',       // 1 = tap the left side for the next page
   pageList: '1',       // page list down the left side of the music

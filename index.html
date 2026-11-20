@@ -93,10 +93,16 @@
       <div class="v-left">
         <button class="ctl-btn" id="v-restart" data-icon="skip-back" aria-label="Back to start"></button>
       </div>
-      <button class="ctl-btn play" id="v-play" aria-label="Play">
-        <span class="i-play" data-icon="play"></span>
-        <span class="i-pause" data-icon="pause"></span>
-      </button>
+      <div class="v-mid">
+        <button class="ctl-btn play" id="v-play" aria-label="Play">
+          <span class="i-play" data-icon="play"></span>
+          <span class="i-pause" data-icon="pause"></span>
+        </button>
+        <!-- iPad sideways: one page or two side by side -->
+        <div id="v-spread" class="seg" role="group" aria-label="Pages on screen">
+          <button data-spread="1">1 page</button><button data-spread="2">2 pages</button>
+        </div>
+      </div>
       <div id="v-status" aria-live="off"></div>
     </footer>
 

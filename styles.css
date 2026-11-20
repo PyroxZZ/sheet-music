@@ -783,7 +783,16 @@ input.switch:checked::before { transform: translateX(20px); }
 #viewer.stage-warm #v-strip { background: #e9dfc8; }
 
 /* Play button: hidden unless chosen in Settings (or while auto-scroll runs, so it can be paused). */
-#viewer.play-hidden:not(.is-playing) #v-play { visibility: hidden; }
+#viewer.play-hidden:not(.is-playing) #v-play { display: none; }
+.v-mid { display: flex; align-items: center; justify-content: center; gap: var(--sp-3); min-height: 60px; }
+#v-spread { display: none; }
+#viewer.can-spread #v-spread { display: inline-flex; }
+.seg { padding: 3px; gap: 2px; border-radius: 12px; background: var(--fill); }
+.seg button {
+  min-height: 40px; padding: 0 16px; border: 0; border-radius: 9px; background: none; color: var(--text);
+  font: 500 var(--fs-sub)/1 var(--font); cursor: pointer; white-space: nowrap; transition: background-color var(--dur-fast);
+}
+.seg button.on { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .25); font-weight: 600; }
 .s-autoplay { width: 100%; min-height: 48px; margin-bottom: var(--sp-4); font-size: var(--fs-callout); }
 .s-autoplay .ic { width: 18px; height: 18px; }
 #viewer.is-playing .s-autoplay .ic { display: none; }

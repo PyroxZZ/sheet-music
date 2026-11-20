@@ -21,6 +21,7 @@ export function openSettings() {
         <div class="s-group">
           ${row('Tap sides', select('swapTaps', [['0', 'Right = next page'], ['1', 'Left = next page']]), 'The middle of the page always shows or hides the toolbars.')}
           ${row('Upright iPad', select('halfTurn', [['1', 'Half-page turns'], ['0', 'Whole page turns']]), 'Half-page: the top half shows the next page while you finish the bottom.')}
+          ${row('Sideways iPad shows', select('spread', [['2', 'Two pages side by side'], ['1', 'One page']]), 'Also switchable from the bar under the music.')}
           ${row('Sideways iPad', select('spreadTurn', [['one', 'Turn one page'], ['both', 'Turn both pages']]), 'One page: the page you finished is replaced by the next. Both: like turning a book page.')}
           ${row('Page list', toggle('pageList'), 'Small pages down the left side, so you can see what is next and jump to a page.')}
         </div>
