@@ -22,6 +22,7 @@ An offline sheet-music library for iPad/iPhone that installs from Safari ("Add t
 - **Find in music** (magnifier in the bar under the music): lists the songs inside a big PDF (from its bookmarks, or the big titles at the top of pages) and searches any words printed in it; tap a result to jump there. Scanned PDFs are read with OCR the first time.
 - **Library search** also looks inside the music, so a song title finds the book it is in.
 - **Stage light button** (sun / sunset / moon in the bar under the music) switches Normal, Warm and Dark.
+- **Lock taps** (padlock in the bar under the music): taps, swipes and dragging on the music do nothing, so nothing turns or opens by accident while performing. Auto-scroll keeps going. Hold the music for a moment to unlock.
 - **Import photos**: choosing pictures with Import opens them in the scanner (straighten, clean, save as PDF).
 - **Tapping the music**: left third = previous page, right third = next page, middle = show / hide the toolbars (anywhere, if the music fits on one screen). Swipe sideways for the next / previous song.
 - **Scan** printed music with the camera. Each photo is flattened and cleaned to black on white. Per page you can choose **Sharp (traced)** (default: the ink traced into vector outlines, sharp at any zoom like a publisher's PDF, with no notes re-read or changed), **Clean B&W** (the cleaned photo) or **Original colour**.

@@ -833,3 +833,23 @@ input.switch:checked::before { transform: translateX(20px); }
 .f-text mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 3px; }
 .f-page { flex: none; font-size: var(--fs-foot); color: var(--muted); font-variant-numeric: tabular-nums; }
 .f-empty { padding: var(--sp-5) var(--sp-4); text-align: center; color: var(--muted); font-size: var(--fs-sub); }
+
+/* Lock taps */
+#v-lockbadge { display: none; }
+#viewer.is-locked #v-lockbadge {
+  display: flex; align-items: center; gap: 8px; position: absolute; z-index: 5;
+  top: calc(var(--safe-top) + 12px); right: calc(var(--safe-right) + 12px);
+  padding: 8px 14px; border-radius: 999px; pointer-events: none;
+  background: rgba(28, 28, 30, .82); color: #fff; font: 500 var(--fs-sub)/1.2 var(--font);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .25); transition: padding var(--dur) var(--ease), opacity var(--dur) var(--ease);
+  animation: pop-in var(--dur) var(--ease-out);
+}
+#v-lockbadge .ic { width: 16px; height: 16px; flex: none; }
+#v-lockbadge.quiet { padding: 8px; opacity: .45; }
+#v-lockbadge.quiet .lb-text { display: none; }
+#v-lockbadge.holding { opacity: 1; background: var(--accent); }
+#v-lockbadge.holding .lb-text { display: inline; }
+#viewer.is-locked #v-scroll { overflow: hidden; touch-action: none; }
+#viewer.is-locked #v-paged { touch-action: none; }
+#viewer.is-locked #v-strip { pointer-events: none; }
+#viewer.is-locked #v-scroll, #viewer.is-locked #v-paged { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }

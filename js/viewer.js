@@ -119,6 +119,7 @@ function teardown() {
 
 function closeViewer() {
   if (!state) return;
+  if (locked) setLock(false);
   teardown();
   const cb = state.onClose;
   state = null;
@@ -704,7 +705,32 @@ function highlightBar(id) {
 // ---------- Chrome (toolbar) ----------
 
 function showChrome(show) {
+  if (show && locked) return; // locked: the toolbars stay hidden until unlocked
   $('#viewer').classList.toggle('chrome-hidden', !show);
+}
+
+// ---------- Lock taps (for performing) ----------
+// Locked: taps, swipes and dragging on the music do nothing, so a sleeve or a stray touch can't
+// turn the page or open a menu. Auto-scroll keeps running. Hold anywhere on the music to unlock.
+// The lock stays on when a setlist moves to the next song, and comes off when leaving the music.
+let locked = false;
+
+function setLock(on) {
+  locked = on;
+  const v = $('#viewer');
+  v.classList.toggle('is-locked', on);
+  $('#v-settings').hidden = true;
+  $('#v-find').hidden = true;
+  if (on) {
+    v.classList.add('chrome-hidden');
+    const badge = $('#v-lockbadge');
+    badge.classList.remove('quiet');
+    clearTimeout(setLock.timer);
+    setLock.timer = setTimeout(() => badge.classList.add('quiet'), 2500); // shrink to a small padlock
+  } else {
+    showChrome(true);
+    toast('Unlocked', { ms: 1200 });
+  }
 }
 
 // ---------- Tap to turn the page ----------
@@ -1154,6 +1180,7 @@ export function initViewer() {
     const p = $('#v-settings'); p.hidden = !p.hidden;
   });
   $('#s-close').addEventListener('click', () => { $('#v-settings').hidden = true; });
+  $('#v-lock').addEventListener('click', () => setLock(true));
   $('#v-light').addEventListener('click', () => {
     const next = STAGE[pref('stage')]?.next || 'warm';
     setPref('stage', next);
@@ -1220,9 +1247,20 @@ export function initViewer() {
   //   music fits on one screen      -> a tap anywhere shows / hides the toolbars (nothing to turn)
   // Horizontal swipe = next / previous song.
   let downAt = 0, downX = 0, downY = 0;
-  const onDown = e => { downAt = Date.now(); downX = e.clientX; downY = e.clientY; };
+  let holdTimer = 0;
+  const onDown = e => {
+    downAt = Date.now(); downX = e.clientX; downY = e.clientY;
+    clearTimeout(holdTimer);
+    if (locked) {
+      $('#v-lockbadge').classList.add('holding');
+      holdTimer = setTimeout(() => { $('#v-lockbadge').classList.remove('holding'); setLock(false); }, 800);
+    }
+  };
+  const cancelHold = () => { clearTimeout(holdTimer); $('#v-lockbadge').classList.remove('holding'); };
+  const onMove = e => { if (Math.abs(e.clientX - downX) > 15 || Math.abs(e.clientY - downY) > 15) cancelHold(); };
   const onUp = e => {
-    if (!state) return;
+    cancelHold();
+    if (!state || locked) return;
     const dx = e.clientX - downX, dy = e.clientY - downY, dt = Date.now() - downAt;
     if (dt < 600 && Math.abs(dx) > 80 && Math.abs(dy) < 50) { switchSong(dx < 0 ? 1 : -1); return; }
     if (dt > 300 || Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
@@ -1240,6 +1278,9 @@ export function initViewer() {
   };
   for (const el of [sc, $('#v-paged')]) {
     el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointercancel', cancelHold);
+    el.addEventListener('contextmenu', e => { if (locked) e.preventDefault(); });
     el.addEventListener('pointerup', onUp);
   }
 
