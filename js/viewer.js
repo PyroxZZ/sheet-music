@@ -10,6 +10,13 @@
 //
 // The scroll follows "keyframes": (time, position) pairs. Between keyframes it moves smoothly; a keyframe
 // pair with the same time and a lower position is an instant jump back (a repeat).
+//
+// PDFs can be shown two ways (Tempo & scroll -> Layout):
+//   Scroll - one long continuous strip of pages.
+//   Pages  - (default on iPad) whole pages that never move under your eyes. Portrait: one page with
+//            half-page turns (the top half shows the next page while you read the bottom half).
+//            Landscape: two pages side by side like a book; the page you finished is replaced by the next.
+// In Pages layout, positions are "virtual" (pages stacked at a fixed width) so the same keyframes work.
 import * as db from './db.js';
 import { loadPdf } from './pdf.js';
 import { analyzePdf } from './detect.js';
@@ -18,6 +25,22 @@ import { toast } from './ui.js';
 const READING_LINE = 0.3; // the bar being played sits 30% down the screen
 
 const $ = sel => document.querySelector(sel);
+
+// Viewer preferences for all songs (kept on this device).
+const PREF_DEFAULTS = { view: 'auto', trim: '1', stage: 'normal' };
+function pref(k) { try { return localStorage.getItem('pref.' + k) ?? PREF_DEFAULTS[k]; } catch { return PREF_DEFAULTS[k]; } }
+function setPref(k, v) { try { localStorage.setItem('pref.' + k, v); } catch {} }
+// Pages layout: chosen, or automatically on iPad-sized screens.
+function wantPaged() {
+  if (!state || state.kind !== 'pdf') return false;
+  const v = pref('view');
+  return v === 'pages' || (v === 'auto' && Math.min(innerWidth, innerHeight) >= 700);
+}
+function applyStage() {
+  const v = $('#viewer');
+  v.classList.toggle('stage-warm', pref('stage') === 'warm');
+  v.classList.toggle('stage-dark', pref('stage') === 'dark');
+}
 
 let state = null;
 let pageAnim = 0; // rAF id of a tap page-turn animation
@@ -42,7 +65,9 @@ export async function openViewer(song, onClose, playlist = [], direction = 0) {
     pages: [], frames: null,
     playing: false, t: 0, lastTs: 0, raf: 0,
     countIn: 0, wake: null, userTouching: false, curBar: null,
+    paged: false, pv: { c: 0, half: false }, pcache: new Map(), shown: new Set(),
   };
+  applyStage();
   updateSongNav();
   if (!wasOpen) animateIn(root, 'v-enter');
   else if (direction) animateIn($('#v-pages'), direction > 0 ? 'v-next' : 'v-prev');
@@ -71,8 +96,13 @@ function teardown() {
   if (!state) return;
   stop();
   for (const p of state.pages) freeCanvas(p);
+  for (const e of state.pcache.values()) if (e.canvas) e.canvas.width = e.canvas.height = 0;
+  state.pcache.clear();
   if (state.pdf) state.pdf.destroy();
   $('#v-pages').innerHTML = '';
+  $('#v-stage').innerHTML = '';
+  $('#viewer').classList.remove('is-paged');
+  $('#v-pages').hidden = false;
   $('#v-settings').hidden = true;
 }
 
@@ -125,19 +155,104 @@ async function buildPdfPages() {
   const wrap = $('#v-pages');
   wrap.innerHTML = '';
   state.pages = [];
-  for (let i = 1; i <= state.pdf.numPages; i++) {
-    const page = await state.pdf.getPage(i);
+  const st = state;
+  const info = await pageInfo();
+  if (state !== st) return;
+  const trim = pref('trim') === '1';
+  for (let i = 1; i <= st.pdf.numPages; i++) {
+    const page = await st.pdf.getPage(i);
     const vp = page.getViewport({ scale: 1 });
     const el = document.createElement('div');
     el.className = 'v-page';
     wrap.appendChild(el);
-    state.pages.push({ index: i, el, ratio: vp.height / vp.width, canvas: null, rendered: 0, task: null });
+    const pi = info && info[i - 1];
+    const crop = trim && pi ? pi.crop : [0, 0, 1, 1];
+    const ratio = ((crop[3] - crop[1]) * vp.height) / ((crop[2] - crop[0]) * vp.width);
+    // Blank bands (between systems) in this page's own 0..1 range: used to place half-page splits.
+    const gaps = pi ? pi.gaps.map(g => (g - crop[1]) / (crop[3] - crop[1])).filter(g => g > 0 && g < 1) : [];
+    st.pages.push({ index: i, el, W: vp.width, H: vp.height, crop, ratio, gaps, canvas: null, rendered: 0, task: null });
   }
+  setMode();
+}
+
+// Where the music sits on each page (for trimming margins) and the blank bands between systems.
+// Worked out once from a small rendering and saved with the song.
+async function pageInfo() {
+  const st = state, song = st.song;
+  if (song.pageInfo && song.pageInfo.v === 1 && song.pageInfo.pages.length === st.pdf.numPages) return song.pageInfo.pages;
+  const pages = [];
+  try {
+    for (let i = 1; i <= st.pdf.numPages; i++) {
+      const page = await st.pdf.getPage(i);
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: 300 / vp1.width });
+      const c = document.createElement('canvas');
+      c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height);
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      if (state !== st) return null;
+      const { data, width: w, height: h } = ctx.getImageData(0, 0, c.width, c.height);
+      c.width = c.height = 0;
+      const rows = new Uint16Array(h), cols = new Uint16Array(w);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4;
+        if (data[o] + data[o + 1] + data[o + 2] < 480) { rows[y]++; cols[x]++; }
+      }
+      // Ignore the outermost specks (scan dust, page edge): need 2+ ink pixels in a row / column.
+      let y0 = 0, y1 = h - 1, x0 = 0, x1 = w - 1;
+      while (y0 < h && rows[y0] < 2) y0++;
+      while (y1 > y0 && rows[y1] < 2) y1--;
+      while (x0 < w && cols[x0] < 2) x0++;
+      while (x1 > x0 && cols[x1] < 2) x1--;
+      let crop = [0, 0, 1, 1];
+      if (y0 < y1 && x0 < x1) {
+        const pad = 0.025 * w; // breathing room around the music
+        crop = [Math.max(0, (x0 - pad) / w), Math.max(0, (y0 - pad) / h), Math.min(1, (x1 + 1 + pad) / w), Math.min(1, (y1 + 1 + pad) / h)];
+        if ((crop[2] - crop[0]) * (crop[3] - crop[1]) < 0.2) crop = [0, 0, 1, 1]; // something odd: don't trim
+      }
+      const gaps = [];
+      for (let y = 0, run = 0; y <= h; y++) {
+        if (y < h && rows[y] === 0) { run++; continue; }
+        if (run >= 3) gaps.push(+((y - run / 2) / h).toFixed(4));
+        run = 0;
+      }
+      pages.push({ crop: crop.map(v => +v.toFixed(4)), gaps });
+    }
+  } catch (e) { console.warn('Page analysis failed', e); return null; }
+  song.pageInfo = { v: 1, pages };
+  db.put('songs', song);
+  return pages;
+}
+
+// Page y (0..1 of the full page, as detection stores it) -> 0..1 of the shown (trimmed) page.
+const cropY = (p, y) => Math.max(0, Math.min(1, (y - p.crop[1]) / (p.crop[3] - p.crop[1])));
+
+// Pick Scroll or Pages layout and lay out. Called on open and whenever the layout setting or screen changes.
+function setMode() {
+  const paged = wantPaged();
+  state.paged = paged;
+  $('#viewer').classList.toggle('is-paged', paged);
+  $('#v-pages').hidden = paged;
+  if (paged) for (const p of state.pages) freeCanvas(p);
+  else $('#v-stage').innerHTML = '';
   layout();
+  const k = keyframes();
+  if (!paged && k) $('#v-scroll').scrollTop = scrollTopForTime(k, state.t); // keep the musical position
 }
 
 function layout() {
   if (state.kind === 'score') { computeFrames(); return; }
+  if (state.paged) {
+    // Virtual stacking: every page 1000 units wide, so keyframes stay the same whatever is on screen.
+    let top = 0;
+    for (const p of state.pages) { p.vTop = top; p.vH = 1000 * p.ratio; top += p.vH; }
+    computeFrames();
+    const k = keyframes();
+    if (k) state.pv = viewForTime(k, state.t);
+    drawPaged();
+    return;
+  }
   const scroller = $('#v-scroll');
   const width = scroller.clientWidth;
   for (const p of state.pages) {
@@ -146,7 +261,7 @@ function layout() {
     if (p.rendered && p.rendered !== width) freeCanvas(p);
   }
   // Read real positions (includes the top padding under the toolbar).
-  for (const p of state.pages) p.top = p.el.offsetTop;
+  for (const p of state.pages) { p.top = p.el.offsetTop; p.vTop = p.top; p.vH = p.h; }
   drawMarkers();
   renderVisible();
   computeFrames();
@@ -158,24 +273,33 @@ function freeCanvas(p) {
   p.rendered = 0;
 }
 
+// Draw the shown (trimmed) part of a page at a CSS size. Returns { canvas, task }.
+function drawPage(st, p, cssW, cssH) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let k = dpr;
+  const maxPixels = 12e6; // iOS limits canvas size; stay well under ~16M pixels
+  if (cssW * cssH * k * k > maxPixels) k = Math.sqrt(maxPixels / (cssW * cssH));
+  const scale = cssW * k / ((p.crop[2] - p.crop[0]) * p.W);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(cssW * k));
+  canvas.height = Math.max(1, Math.round(cssH * k));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const task = st.pdf.getPage(p.index).then(page => {
+    const viewport = page.getViewport({ scale, offsetX: -p.crop[0] * p.W * scale, offsetY: -p.crop[1] * p.H * scale });
+    return page.render({ canvasContext: ctx, viewport });
+  });
+  return { canvas, task };
+}
+
 async function renderPage(p) {
   if (p.rendered === p.w || p.task) return;
   const st = state;
-  const page = await st.pdf.getPage(p.index);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  let scale = (p.w / page.getViewport({ scale: 1 }).width) * dpr;
-  // iOS limits canvas size; stay well under ~16M pixels.
-  const vp0 = page.getViewport({ scale });
-  const maxPixels = 12e6;
-  if (vp0.width * vp0.height > maxPixels) scale *= Math.sqrt(maxPixels / (vp0.width * vp0.height));
-  const viewport = page.getViewport({ scale });
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.floor(viewport.width);
-  canvas.height = Math.floor(viewport.height);
   const width = p.w;
-  p.task = page.render({ canvasContext: canvas.getContext('2d'), viewport });
+  const { canvas, task } = drawPage(st, p, p.w, p.h);
+  p.task = { cancel: () => task.then(t => t.cancel()).catch(() => {}) };
   try {
-    await p.task.promise;
+    await (await task).promise;
   } catch { canvas.width = canvas.height = 0; return; } finally { p.task = null; }
   if (state !== st || p.w !== width) { canvas.width = canvas.height = 0; return; }
   if (p.canvas) { p.canvas.width = p.canvas.height = 0; p.canvas.remove(); }
@@ -205,7 +329,7 @@ function drawMarkers() {
     if (!p) continue;
     const tag = document.createElement('div');
     tag.className = 'v-mark';
-    tag.style.top = (m.y * 100) + '%';
+    tag.style.top = (cropY(p, m.y) * 100) + '%';
     tag.textContent = 'Bar ' + m.bar;
     p.el.appendChild(tag);
   }
@@ -277,9 +401,9 @@ function pdfFrames() {
   const s = state.song.scroll;
   if (!s.bpm || !state.pages.length) return null;
   const spb = secondsPerBar(s);
-  const docY = (page, y) => { const p = state.pages[page]; return p ? p.top + y * p.h : 0; };
+  const docY = (page, y) => { const p = state.pages[page]; return p ? p.vTop + cropY(p, y) * p.vH : 0; };
   const last = state.pages[state.pages.length - 1];
-  const docEnd = last.top + last.h;
+  const docEnd = last.vTop + last.vH;
   const pts = [];
   if (s.marks && s.marks.length >= 2) {
     for (const m of s.marks) pts.push({ t: (m.bar - 1) * spb, y: docY(m.page, m.y) });
@@ -287,7 +411,7 @@ function pdfFrames() {
     const end = s.endMark ? docY(s.endMark.page, s.endMark.y) : docEnd;
     pts.push({ t: total * spb, y: end });
   } else if (s.totalBars) {
-    pts.push({ t: 0, y: state.pages[0].top }, { t: s.totalBars * spb, y: docEnd });
+    pts.push({ t: 0, y: state.pages[0].vTop }, { t: s.totalBars * spb, y: docEnd });
   } else return null;
   // Keep strictly increasing in both time and position.
   const clean = [pts[0]];
@@ -341,7 +465,7 @@ const clampScroll = (sc, v) => Math.max(0, Math.min(sc.scrollHeight - sc.clientH
 
 function syncTimeToScroll() {
   const k = keyframes();
-  if (!k) return;
+  if (!k || state.paged) return; // in Pages layout the time is set by the page turns themselves
   const sc = $('#v-scroll');
   // Already where the current time says we should be? Then keep the time (the scroll position alone is
   // ambiguous near the top/bottom, where it can't move any further).
@@ -363,7 +487,8 @@ function play() {
   }
   syncTimeToScroll();
   if (state.t >= endTime(k) - 0.05) state.t = 0;
-  $('#v-scroll').scrollTop = scrollTopForTime(k, state.t);
+  if (state.paged) { state.pv = viewForTime(k, state.t); drawPaged(); }
+  else $('#v-scroll').scrollTop = scrollTopForTime(k, state.t);
   state.playing = true;
   state.countIn = s.countIn ? (s.beatsPerBar || 4) : 0;
   state.countStart = performance.now();
@@ -380,6 +505,7 @@ function stop() {
   state.playing = false;
   cancelAnimationFrame(state.raf);
   $('#v-count').hidden = true;
+  $('#v-cursor')?.classList.remove('on');
   $('#v-play').classList.remove('playing');
   $('#v-play').setAttribute('aria-label', 'Play');
   releaseWakeLock();
@@ -408,7 +534,11 @@ function tick(ts) {
   if (state.lastTs && !state.userTouching && !pageAnim) {
     const dt = Math.min(0.1, (ts - state.lastTs) / 1000);
     state.t += dt;
-    sc.scrollTop = scrollTopForTime(k, state.t);
+    if (state.paged) {
+      const v = viewForTime(k, state.t);
+      if (v.c !== state.pv.c || v.half !== state.pv.half) { state.pv = v; drawPaged(); }
+      placeCursor(k);
+    } else sc.scrollTop = scrollTopForTime(k, state.t);
   }
   state.lastTs = ts;
   updateStatus();
@@ -468,19 +598,49 @@ function showChrome(show) {
 // True for a one-page PDF, or when all the music is visible without scrolling.
 function fitsOneScreen() {
   if (state.kind === 'pdf' && state.pdf && state.pdf.numPages === 1) return true;
+  if (state.paged) return false;
   const sc = $('#v-scroll'), last = $('#v-pages').lastElementChild;
   if (!last) return true;
   return last.offsetTop + last.offsetHeight <= sc.clientHeight * 1.05;
 }
 
+// Scroll layout: move on by most of a screen, keeping the last lines you read at the top for context,
+// and land the next page (PDF) or the next line of music (MusicXML) a little below the top edge,
+// not jammed against it.
 function turnPage(dir) {
+  if (state.paged) { pagedTurn(dir); return; }
   const sc = $('#v-scroll');
-  const bars = [...document.querySelectorAll('#viewer .v-bar')].filter(b => getComputedStyle(b).opacity !== '0');
-  const covered = bars.reduce((h, b) => h + b.offsetHeight, 0);
-  const step = Math.max(120, (sc.clientHeight - covered) * 0.88);
+  const chromeShown = !$('#viewer').classList.contains('chrome-hidden');
+  const topBar = chromeShown ? $('#viewer .v-top').offsetHeight : 0;
+  const bottomBar = chromeShown ? $('#viewer .v-bottom').offsetHeight : 0;
+  const vis = sc.clientHeight - topBar - bottomBar;
+  const breath = topBar + Math.round(sc.clientHeight * 0.07);
   const from = sc.scrollTop;
-  const to = Math.max(0, Math.min(sc.scrollHeight - sc.clientHeight, from + dir * step));
-  if (to === from) return;
+  let to = from + dir * Math.max(120, vis * 0.8);
+  // Natural starting points, in scroll coordinates: lines of music (detected bar numbers in a PDF,
+  // systems in MusicXML) and page tops. Land on the furthest one that still fits, so the new music
+  // starts just below the top with room to breathe, never cut off above the screen.
+  let starts = [];
+  if (state.kind === 'pdf') {
+    starts = state.pages.slice(1).map(p => p.top);
+    for (const m of state.song.scroll.marks || []) {
+      const p = state.pages[m.page];
+      if (p) starts.push(p.top + cropY(p, m.y) * p.h - 24); // just above the bar number
+    }
+  } else {
+    const base = sc.getBoundingClientRect().top - sc.scrollTop;
+    starts = [...$('#v-pages').querySelectorAll('g.system')].map(g => g.getBoundingClientRect().top - base);
+  }
+  let best = null;
+  for (const y of starts) {
+    const cand = y - breath;
+    const ahead = (cand - from) * dir;
+    if (ahead <= vis * 0.3 || ahead > Math.abs(to - from) + vis * 0.1) continue;
+    if (best == null || (cand - best) * dir > 0) best = cand;
+  }
+  if (best != null) to = best;
+  to = Math.max(0, Math.min(sc.scrollHeight - sc.clientHeight, to));
+  if (Math.abs(to - from) < 2) return;
   cancelAnimationFrame(pageAnim);
   const start = performance.now(), dur = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320;
   const ease = x => 1 - Math.pow(1 - x, 3);
@@ -494,6 +654,162 @@ function turnPage(dir) {
     }
   };
   pageAnim = requestAnimationFrame(stepFn);
+}
+
+// ---------- Pages layout (iPad) ----------
+
+const spreadOn = () => {
+  const st = $('#v-stage');
+  return st.clientWidth > st.clientHeight && state.pages.length >= 2;
+};
+
+// Which page (and fraction of it) is being played at time t.
+function pageAtTime(k, t) {
+  const y = yAtTime(k, t);
+  let c = 0;
+  while (c < state.pages.length - 1 && y >= state.pages[c + 1].vTop) c++;
+  const p = state.pages[c];
+  return { c, f: Math.max(0, Math.min(1, (y - p.vTop) / p.vH)) };
+}
+
+// What to show at time t: landscape = the page being played and the next one; portrait = the page,
+// switching to the half-page view once you're past its middle.
+function viewForTime(k, t) {
+  const { c, f } = pageAtTime(k, t);
+  const n = state.pages.length;
+  if (spreadOn()) return { c: Math.min(c, Math.max(0, n - 2)), half: false };
+  return { c, half: c + 1 < n && f >= splitOf(c + 1, true) };
+}
+
+// Where the half-page split falls: a blank band between systems near the middle of the next page.
+function splitOf(i, asTrigger = false) {
+  const p = state.pages[i];
+  let best = 0.5, bd = 0.2;
+  for (const g of p.gaps) { const d = Math.abs(g - 0.5); if (d < bd) { bd = d; best = g; } }
+  return asTrigger ? Math.max(0.35, Math.min(0.65, best)) : best;
+}
+
+const fitBox = (ratio, maxW, maxH) => { const w = Math.min(maxW, maxH / ratio); return { w, h: w * ratio }; };
+
+// Rendered page canvases, reused across turns (keyed by page and size).
+function pageCanvas(i, w, h) {
+  const key = `${i}:${Math.round(w)}x${Math.round(h)}`;
+  let e = state.pcache.get(key);
+  if (!e) {
+    const st = state;
+    const { canvas, task } = drawPage(st, st.pages[i], w, h);
+    e = { i, canvas, ready: task.then(t => t.promise).then(() => canvas).catch(() => null) };
+    state.pcache.set(key, e);
+  }
+  return e;
+}
+
+function trimCache(keep) {
+  for (const [key, e] of state.pcache) {
+    if (!keep.has(key)) { if (e.canvas) e.canvas.width = e.canvas.height = 0; state.pcache.delete(key); }
+  }
+}
+
+// Lay out the pages for the current view (state.pv) on #v-stage.
+async function drawPaged() {
+  const st = state;
+  if (!st || !st.paged || !st.pages.length) return;
+  const stage = $('#v-stage');
+  const W = stage.clientWidth, H = stage.clientHeight;
+  if (!W || !H) return;
+  const n = st.pages.length;
+  const { c, half } = st.pv;
+  const items = []; // { i, x, y, w, h, clip }
+  if (spreadOn()) {
+    const gap = 16, sw = (W - gap) / 2;
+    for (const i of [c, c + 1]) {
+      if (i >= n) continue;
+      const b = fitBox(st.pages[i].ratio, sw, H);
+      const right = i % 2 === 1; // book order: even pages left, odd pages right
+      items.push({ i, x: right ? sw + gap : sw - b.w, y: 0, w: b.w, h: b.h });
+    }
+  } else {
+    const b = fitBox(st.pages[c].ratio, W, H);
+    const x = (W - b.w) / 2;
+    items.push({ i: c, x, y: 0, w: b.w, h: b.h });
+    if (half && c + 1 < n) {
+      // Top part of the next page laid over this one, cut at a blank band between systems.
+      const nb = { w: b.w, h: b.w * st.pages[c + 1].ratio };
+      items.push({ i: c + 1, x, y: 0, w: nb.w, h: nb.h, clip: Math.min(b.h, nb.h * splitOf(c + 1)) });
+    }
+  }
+  const entries = items.map(it => pageCanvas(it.i, it.w, it.h));
+  const canvases = await Promise.all(entries.map(e => e.ready));
+  if (state !== st || st.pv.c !== c || st.pv.half !== half) return; // a newer view was asked for meanwhile
+  const frag = document.createDocumentFragment();
+  items.forEach((it, k) => {
+    const box = document.createElement('div');
+    box.className = 'pv-page' + (it.clip != null ? ' pv-half' : '') + (st.shown.has(it.i + (it.clip != null ? 'h' : '')) ? '' : ' pv-in');
+    box.style.cssText = `left:${it.x}px;top:${it.y}px;width:${it.w}px;height:${it.clip != null ? it.clip : it.h}px`;
+    const cv = canvases[k];
+    if (cv) { cv.style.width = it.w + 'px'; cv.style.height = it.h + 'px'; box.appendChild(cv); }
+    frag.appendChild(box);
+  });
+  const cursor = document.createElement('div');
+  cursor.id = 'v-cursor';
+  if (st.playing) cursor.className = 'on';
+  frag.appendChild(cursor);
+  stage.replaceChildren(frag);
+  st.layoutItems = items;
+  st.shown = new Set(items.map(it => it.i + (it.clip != null ? 'h' : '')));
+  const k = keyframes();
+  if (k && st.playing) placeCursor(k);
+  // Get the next turn ready in the background, and drop pages that are far away.
+  const keep = new Set(items.map(it => `${it.i}:${Math.round(it.w)}x${Math.round(it.h)}`));
+  const ahead = spreadOn() ? [c + 2] : [c + 1];
+  for (const i of ahead) {
+    if (i >= n) continue;
+    const b = spreadOn() ? fitBox(st.pages[i].ratio, (W - 16) / 2, H) : fitBox(st.pages[i].ratio, W, H);
+    const e = pageCanvas(i, b.w, b.h);
+    keep.add(`${i}:${Math.round(b.w)}x${Math.round(b.h)}`);
+    if (!spreadOn() && half) keep.add(`${i}:${Math.round(items[0].w)}x${Math.round(items[0].w * st.pages[i].ratio)}`);
+    void e;
+  }
+  trimCache(keep);
+}
+
+// Small marker at the left edge of the line being played (the page itself doesn't move).
+function placeCursor(k) {
+  const cur = $('#v-cursor');
+  if (!cur || !state.layoutItems) return;
+  const { c, f } = pageAtTime(k, state.t);
+  // The playing page may be shown fully or as the top half over the previous page.
+  const it = state.layoutItems.find(x => x.i === c && (x.clip == null || f * x.h <= x.clip))
+    || state.layoutItems.find(x => x.i === c);
+  if (!it) { cur.classList.remove('on'); return; }
+  cur.classList.add('on');
+  cur.style.transform = `translate(${it.x + 4}px, ${it.y + f * it.h - 14}px)`;
+}
+
+// Tap turns in Pages layout. Portrait: full page -> half view -> next full page. Landscape: one page on.
+function pagedTurn(dir) {
+  const n = state.pages.length;
+  let { c, half } = state.pv;
+  if (spreadOn()) {
+    c = Math.max(0, Math.min(Math.max(0, n - 2), c + dir));
+    half = false;
+  } else if (dir > 0) {
+    if (!half && c + 1 < n) half = true;
+    else if (half) { c++; half = false; }
+  } else if (half) half = false;
+  else if (c > 0) { c--; half = true; }
+  if (c === state.pv.c && half === state.pv.half) return;
+  state.pv = { c, half };
+  // Carry on playing from here: the start of the page, or of its second half.
+  const k = keyframes();
+  if (k) {
+    const p = state.pages[c];
+    const y = p.vTop + (half ? splitOf(c + 1, true) : 0) * p.vH + 1;
+    const spb = secondsPerBar(state.song.scroll);
+    state.t = Math.min(endTime(k), Math.ceil(timeAtY(k, y, state.t) / spb - 1e-6) * spb); // from a whole bar
+  }
+  drawPaged();
+  updateStatus();
 }
 
 // ---------- Settings panel ----------
@@ -511,7 +827,26 @@ function fillSettings() {
   $('#s-countin').checked = !!s.countIn;
   $('#s-marks').checked = !!s.showMarks;
   $('#s-zoom-val').textContent = Math.round((s.zoom || 1) * 100) + '%';
+  $('#s-view').value = pref('view');
+  $('#s-trim').checked = pref('trim') === '1';
+  $('#s-stage').value = pref('stage');
   renderDetectInfo();
+}
+
+// Display settings apply to every song (stored on the device, not per song).
+async function changeDisplay(e) {
+  const id = e.target.id;
+  if (id === 's-stage') { setPref('stage', e.target.value); applyStage(); return; }
+  if (state.kind !== 'pdf') return;
+  if (id === 's-view') { setPref('view', e.target.value); setMode(); }
+  if (id === 's-trim') {
+    setPref('trim', e.target.checked ? '1' : '0');
+    for (const ent of state.pcache.values()) if (ent.canvas) ent.canvas.width = ent.canvas.height = 0;
+    state.pcache.clear();
+    await buildPdfPages();
+  }
+  const k = keyframes();
+  if (k && !state.paged) $('#v-scroll').scrollTop = scrollTopForTime(k, state.t);
 }
 
 function renderDetectInfo() {
@@ -609,15 +944,21 @@ export function initViewer() {
   $('#v-play').addEventListener('click', () => { if (state.playing) { stop(); showChrome(true); } else play(); });
   $('#v-restart').addEventListener('click', () => {
     const wasPlaying = state.playing; stop();
-    sc.scrollTop = 0; state.t = 0; updateStatus();
+    sc.scrollTop = 0; state.t = 0;
+    if (state.paged) { state.pv = { c: 0, half: false }; drawPaged(); }
+    updateStatus();
     if (wasPlaying) play();
   });
   $('#v-gear').addEventListener('click', () => {
     const p = $('#v-settings'); p.hidden = !p.hidden;
   });
   $('#s-close').addEventListener('click', () => { $('#v-settings').hidden = true; });
-  $('#v-settings').addEventListener('input', e => { if (!e.target.closest('[data-zoom]')) readSettings(); });
-  $('#v-settings').addEventListener('change', e => { if (!e.target.closest('[data-zoom]')) readSettings(); });
+  const isDisplay = e => e.target.closest('[data-display]');
+  $('#v-settings').addEventListener('input', e => { if (!e.target.closest('[data-zoom]') && !isDisplay(e)) readSettings(); });
+  $('#v-settings').addEventListener('change', e => {
+    if (isDisplay(e)) { changeDisplay(e); return; }
+    if (!e.target.closest('[data-zoom]')) readSettings();
+  });
   for (const btn of document.querySelectorAll('[data-bpm]')) {
     btn.addEventListener('click', () => {
       const cur = parseFloat($('#s-bpm').value) || 100;
@@ -645,8 +986,8 @@ export function initViewer() {
   //   music fits on one screen      -> a tap anywhere shows / hides the toolbars (nothing to turn)
   // Horizontal swipe = next / previous song.
   let downAt = 0, downX = 0, downY = 0;
-  sc.addEventListener('pointerdown', e => { downAt = Date.now(); downX = e.clientX; downY = e.clientY; });
-  sc.addEventListener('pointerup', e => {
+  const onDown = e => { downAt = Date.now(); downX = e.clientX; downY = e.clientY; };
+  const onUp = e => {
     if (!state) return;
     const dx = e.clientX - downX, dy = e.clientY - downY, dt = Date.now() - downAt;
     if (dt < 600 && Math.abs(dx) > 80 && Math.abs(dy) < 50) { switchSong(dx < 0 ? 1 : -1); return; }
@@ -654,15 +995,24 @@ export function initViewer() {
     if (!$('#v-settings').hidden) { $('#v-settings').hidden = true; return; }
     const toggleChrome = () => showChrome($('#viewer').classList.contains('chrome-hidden'));
     if (fitsOneScreen()) { toggleChrome(); return; }
-    const r = sc.getBoundingClientRect(), x = (e.clientX - r.left) / r.width;
+    const r = e.currentTarget.getBoundingClientRect(), x = (e.clientX - r.left) / r.width;
     if (x < 1 / 3) turnPage(-1);
     else if (x > 2 / 3) turnPage(1);
     else toggleChrome();
-  });
+  };
+  for (const el of [sc, $('#v-paged')]) {
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointerup', onUp);
+  }
 
   let resizeTimer = 0;
   window.addEventListener('resize', () => {
     if (!state) return;
+    if (state.kind === 'pdf' && (wantPaged() !== state.paged || state.paged)) {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { if (state) setMode(); }, 150); // rotated: book spread <-> single page
+      return;
+    }
     syncTimeToScroll();
     const t = state.t;
     if (state.kind === 'score') {

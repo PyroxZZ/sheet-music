@@ -1,4 +1,5 @@
-// Library screen: folders, songs, import, search, sort, backup.
+// Library screen: folders, setlists, songs, import, search, sort, backup.
+// On a wide landscape screen (iPad sideways) a sidebar shows the whole folder tree and the setlists.
 import * as db from './db.js';
 import { loadPdf, makeThumbnail } from './pdf.js';
 import { analyzePdf } from './detect.js';
@@ -14,6 +15,8 @@ const state = {
   sort: localStorageGet('sort') || 'name-asc',
   folders: [],
   songs: [],
+  setlists: [],
+  setlistId: null, // showing a setlist instead of a folder
 };
 
 function localStorageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -22,9 +25,49 @@ function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 const norm = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 async function reload() {
-  [state.folders, state.songs] = await Promise.all([db.getAll('folders'), db.getAll('songs')]);
+  [state.folders, state.songs, state.setlists] = await Promise.all([db.getAll('folders'), db.getAll('songs'), db.getAll('setlists')]);
   if (state.folderId && !state.folders.some(f => f.id === state.folderId)) state.folderId = null;
+  if (state.setlistId && !state.setlists.some(l => l.id === state.setlistId)) state.setlistId = null;
   render();
+}
+
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+const setlistSongs = l => l.songIds.map(id => state.songs.find(s => s.id === id)).filter(Boolean);
+
+function songInfo(s) {
+  const sc = s.scroll || {};
+  return s.kind === 'score'
+    ? ['MusicXML', sc.bpm ? `${sc.bpm} BPM` : 'No tempo']
+    : [sc.bpm ? `${sc.bpm} BPM` : 'No tempo', `${s.pageCount} ${s.pageCount === 1 ? 'page' : 'pages'}`];
+}
+
+function setlistCard(l) {
+  const n = setlistSongs(l).length;
+  return `
+    <div class="card folder setlist" data-open-setlist="${l.id}">
+      <div class="folder-ic" aria-hidden="true">${icon('list-music')}</div>
+      <div class="meta"><div class="title">${esc(l.name)}</div><div class="sub">Setlist · ${n} song${n === 1 ? '' : 's'}</div></div>
+      <button class="more" data-setlist-menu="${l.id}" aria-label="Setlist options">${icon('more')}</button>
+    </div>`;
+}
+
+// Sidebar (wide landscape only, see CSS): Library, the full folder tree, setlists.
+function renderSidebar() {
+  const active = (kind, id) => (kind === 'folder' ? !state.setlistId && state.folderId === id : state.setlistId === id) ? ' aria-current="true"' : '';
+  const rows = [`<button class="sb-row" data-nav-folder=""${active('folder', null)}>${icon('library')}<span class="sb-name">Library</span><span class="sb-count">${state.songs.length}</span></button>`];
+  const walk = (parentId, depth) => {
+    for (const f of state.folders.filter(x => x.parentId === parentId).sort(byName)) {
+      rows.push(`<button class="sb-row" style="--depth:${depth}" data-nav-folder="${f.id}"${active('folder', f.id)}>${icon('folder')}<span class="sb-name">${esc(f.name)}</span><span class="sb-count">${countIn(f.id)}</span></button>`);
+      walk(f.id, depth + 1);
+    }
+  };
+  walk(null, 1);
+  const lists = [...state.setlists].sort(byName).map(l =>
+    `<button class="sb-row" data-nav-setlist="${l.id}"${active('setlist', l.id)}>${icon('list-music')}<span class="sb-name">${esc(l.name)}</span><span class="sb-count">${setlistSongs(l).length}</span></button>`);
+  $('#sidebar').innerHTML = `
+    <div class="sb-section">${rows.join('')}</div>
+    <div class="sb-title"><span>Setlists</span><button class="sb-add" data-new-setlist aria-label="New setlist">${icon('plus')}</button></div>
+    <div class="sb-section">${lists.join('') || '<p class="sb-empty">Group songs in the order you play them, e.g. for a concert.</p>'}</div>`;
 }
 
 function folderPath(id) {
@@ -65,6 +108,8 @@ function countIn(folderId) {
 }
 
 function render() {
+  renderSidebar();
+  if (state.setlistId && !state.query.trim()) { renderSetlist(); return; }
   // Breadcrumbs
   const path = folderPath(state.folderId);
   const crumbs = [`<button class="crumb" data-folder=""${path.length ? '' : ' aria-current="page"'}>${icon('library')}<span>Library</span></button>`];
@@ -72,15 +117,18 @@ function render() {
   $('#crumbs').innerHTML = crumbs.join('');
   $('#crumbs').hidden = !!state.query || !path.length;
 
-  let folders, songs;
+  let folders, songs, lists = [];
   const q = norm(state.query.trim());
   if (q) {
     folders = state.folders.filter(f => norm(f.name).includes(q));
     songs = state.songs.filter(s => norm(s.title).includes(q));
+    lists = state.setlists.filter(l => norm(l.name).includes(q));
   } else {
     folders = state.folders.filter(f => f.parentId === state.folderId);
     songs = state.songs.filter(s => s.folderId === state.folderId);
+    if (!state.folderId) lists = state.setlists;
   }
+  lists = [...lists].sort(byName);
   folders = sortFolders(folders);
   songs = sortSongs(songs);
   state.visibleSongs = songs; // the order next/previous song follows in the viewer
@@ -97,10 +145,7 @@ function render() {
       </div>`;
   });
   const songCards = songs.map(s => {
-    const sc = s.scroll || {};
-    const info = s.kind === 'score'
-      ? ['MusicXML', sc.bpm ? `${sc.bpm} BPM` : 'No tempo']
-      : [sc.bpm ? `${sc.bpm} BPM` : 'No tempo', `${s.pageCount} ${s.pageCount === 1 ? 'page' : 'pages'}`];
+    const info = songInfo(s);
     return `
       <div class="card song" data-open-song="${s.id}">
         <div class="thumb">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="thumb-ph">${icon('file-music')}</span>`}</div>
@@ -114,8 +159,9 @@ function render() {
   const group = (label, cls, cards) => cards.length
     ? `<div class="group"><h2 class="group-title">${label}<span class="count">${cards.length}</span></h2><div class="${cls}">${cards.join('')}</div></div>`
     : '';
-  $('#grid').innerHTML = group('Folders', 'folder-grid', folderCards) + group('Music', 'song-grid', songCards);
-  const empty = !folders.length && !songs.length;
+  $('#grid').innerHTML = group('Setlists', 'folder-grid', lists.map(setlistCard))
+    + group('Folders', 'folder-grid', folderCards) + group('Music', 'song-grid', songCards);
+  const empty = !folders.length && !songs.length && !lists.length;
   $('#empty').hidden = !empty;
   $('#empty').innerHTML = q
     ? `<div class="empty-ic">${icon('search-x')}</div>
@@ -128,6 +174,35 @@ function render() {
          <button class="tb-btn primary" data-empty-action="import">${icon('file-up')}<span class="lbl">Import PDF</span></button>
          <button class="tb-btn" data-empty-action="scan">${icon('scan-line')}<span class="lbl">Scan</span></button>
        </div>`;
+}
+
+// A setlist: its songs in playing order, numbered. Next / previous song in the viewer follows this order.
+function renderSetlist() {
+  const l = state.setlists.find(x => x.id === state.setlistId);
+  const songs = setlistSongs(l);
+  state.visibleSongs = songs;
+  $('#crumbs').hidden = false;
+  $('#crumbs').innerHTML = `<button class="crumb" data-folder="">${icon('library')}<span>Library</span></button>`
+    + `<span class="sep" aria-hidden="true">${icon('chevron-right')}</span><button class="crumb" aria-current="page"><span>${esc(l.name)}</span></button>`;
+  const rows = songs.map((s, i) => `
+    <li class="card set-row" data-open-song="${s.id}">
+      <span class="set-num">${i + 1}</span>
+      <div class="set-thumb">${s.thumb ? `<img src="${s.thumb}" alt="">` : icon('file-music')}</div>
+      <div class="meta-text"><div class="title">${esc(s.title)}</div><div class="sub">${songInfo(s).join(' · ')}</div></div>
+      <button class="more" data-song-menu="${s.id}" aria-label="Song options">${icon('more')}</button>
+    </li>`);
+  $('#grid').innerHTML = `
+    <div class="setlist-head">
+      <div class="setlist-ic" aria-hidden="true">${icon('list-music')}</div>
+      <div class="setlist-meta"><h2>${esc(l.name)}</h2><div class="sub">Setlist · ${songs.length} song${songs.length === 1 ? '' : 's'}</div></div>
+      ${songs.length ? `<button class="tb-btn primary" data-play-setlist>${icon('play')}<span class="lbl">Start</span></button>` : ''}
+      <button class="tb-btn round" data-setlist-menu="${l.id}" aria-label="Setlist options">${icon('more')}</button>
+    </div>
+    ${songs.length ? `<ol class="setlist">${rows.join('')}</ol>` : ''}`;
+  $('#empty').hidden = !!songs.length;
+  $('#empty').innerHTML = `<div class="empty-ic">${icon('list-music')}</div>
+    <h2>This setlist is empty</h2>
+    <p>Add songs from the library: tap a song’s ${icon('more')} button and choose <b>Add to setlist</b>.</p>`;
 }
 
 // Slide the folder contents in, like iOS navigation: 1 = into a folder, -1 = back out.
@@ -231,14 +306,81 @@ async function scanMusic() {
   }
 }
 
+// ---------- Setlists ----------
+
+async function newSetlist(open = true) {
+  const name = await promptText('New setlist', '', 'Create');
+  if (!name) return null;
+  const l = { id: db.uid(), name, songIds: [], createdAt: Date.now() };
+  await db.put('setlists', l);
+  if (open) { state.setlistId = l.id; state.query = ''; $('#search').value = ''; }
+  await reload();
+  if (open) slide(1);
+  return l;
+}
+
+async function addToSetlist(song) {
+  const lists = [...state.setlists].sort(byName);
+  const choice = await menu('Add to setlist', [
+    ...lists.map(l => ({ label: l.name, value: l.id, icon: 'list-music' })),
+    { label: 'New setlist…', value: '__new', icon: 'plus' },
+  ]);
+  if (!choice) return;
+  const l = choice === '__new' ? await newSetlist(false) : state.setlists.find(x => x.id === choice);
+  if (!l) return;
+  if (l.songIds.includes(song.id)) { toast(`Already in “${l.name}”`); return; }
+  l.songIds.push(song.id);
+  await db.put('setlists', l);
+  toast(`Added to “${l.name}”`);
+}
+
+async function setlistMenu(id) {
+  const l = state.setlists.find(x => x.id === id);
+  const choice = await menu(l.name, [
+    { label: 'Rename', value: 'rename', icon: 'pencil' },
+    { label: 'Delete setlist', value: 'delete', danger: true, icon: 'trash' },
+  ], { message: 'Deleting a setlist keeps the songs in your library.' });
+  if (choice === 'rename') {
+    const name = await promptText('Rename setlist', l.name);
+    if (name) { l.name = name; await db.put('setlists', l); }
+  } else if (choice === 'delete') {
+    if (await confirmBox('Delete setlist?', `“${l.name}” will be removed. The songs stay in your library.`, 'Delete', true)) {
+      await db.del('setlists', id);
+      if (state.setlistId === id) state.setlistId = null;
+    }
+  }
+  reload();
+}
+
+function openSong(song, playlist) {
+  openViewer(song, reload, playlist).catch(err => { console.error(err); toast('Could not open: ' + err.message); });
+}
+
 async function songMenu(id) {
   const song = state.songs.find(s => s.id === id);
+  const inList = state.setlistId && !state.query.trim() ? state.setlists.find(x => x.id === state.setlistId) : null;
+  const pos = inList ? inList.songIds.indexOf(id) : -1;
   const choice = await menu(song.title, [
+    ...(inList ? [
+      ...(pos > 0 ? [{ label: 'Move up', value: 'up', icon: 'arrow-up' }] : []),
+      ...(pos < inList.songIds.length - 1 ? [{ label: 'Move down', value: 'down', icon: 'arrow-down' }] : []),
+      { label: 'Remove from setlist', value: 'remove', icon: 'circle-minus' },
+    ] : []),
+    { label: 'Add to setlist…', value: 'setlist', icon: 'list-plus' },
     { label: 'Rename', value: 'rename', icon: 'pencil' },
     { label: 'Move to folder…', value: 'move', icon: 'move' },
     { label: 'Delete', value: 'delete', danger: true, icon: 'trash' },
   ]);
-  if (choice === 'rename') {
+  if (choice === 'up' || choice === 'down') {
+    const j = pos + (choice === 'up' ? -1 : 1);
+    [inList.songIds[pos], inList.songIds[j]] = [inList.songIds[j], inList.songIds[pos]];
+    await db.put('setlists', inList);
+  } else if (choice === 'remove') {
+    inList.songIds.splice(pos, 1);
+    await db.put('setlists', inList);
+  } else if (choice === 'setlist') {
+    await addToSetlist(song);
+  } else if (choice === 'rename') {
     const name = await promptText('Rename song', song.title);
     if (name) { song.title = name; await db.put('songs', song); }
   } else if (choice === 'move') {
@@ -247,6 +389,7 @@ async function songMenu(id) {
   } else if (choice === 'delete') {
     if (await confirmBox('Delete song?', `“${song.title}” and its PDF will be removed from this iPad.`, 'Delete', true)) {
       await db.deleteSongs([id]);
+      await removeFromSetlists([id]);
     }
   }
   reload();
@@ -272,9 +415,19 @@ async function folderMenu(id) {
     if (await confirmBox('Delete folder?', msg, 'Delete', true)) {
       await db.deleteSongs(songIds);
       await db.deleteFolders([...ids]);
+      await removeFromSetlists(songIds);
     }
   }
   reload();
+}
+
+async function removeFromSetlists(songIds) {
+  const gone = new Set(songIds);
+  for (const l of state.setlists) {
+    if (!l.songIds.some(id => gone.has(id))) continue;
+    l.songIds = l.songIds.filter(id => !gone.has(id));
+    await db.put('setlists', l);
+  }
 }
 
 // ---------- Backup ----------
@@ -300,7 +453,7 @@ async function exportBackup() {
       const data = await db.getPdf(s.id);
       if (data) files[s.id] = bufToBase64(data);
     }
-    const json = JSON.stringify({ app: 'sheet-music', version: 1, exportedAt: Date.now(), folders: state.folders, songs: state.songs, files });
+    const json = JSON.stringify({ app: 'sheet-music', version: 2, exportedAt: Date.now(), folders: state.folders, songs: state.songs, setlists: state.setlists, files });
     const name = `sheet-music-backup-${new Date().toISOString().slice(0, 10)}.json`;
     const file = new File([json], name, { type: 'application/json' });
     t.close();
@@ -323,7 +476,8 @@ async function importBackup(file) {
     if (data.app !== 'sheet-music') throw new Error('Not a backup from this app');
     for (const f of data.folders) await db.put('folders', f);
     for (const s of data.songs) if (data.files[s.id]) await db.addSong(s, base64ToBuf(data.files[s.id]));
-    t.update(`Restored ${data.songs.length} songs and ${data.folders.length} folders`, 3000);
+    for (const l of data.setlists || []) await db.put('setlists', l);
+    t.update(`Restored ${data.songs.length} songs, ${data.folders.length} folders and ${(data.setlists || []).length} setlists`, 3000);
   } catch (e) {
     console.error(e);
     t.update('Restore failed: ' + e.message, 4000);
@@ -339,9 +493,11 @@ async function appMenu() {
     storage = `${(est.usage / 1048576).toFixed(1)} MB stored on this device${persisted ? ' · persistent storage' : ''}`;
   } catch {}
   const choice = await menu('Library', [
+    { label: 'New setlist', value: 'setlist', icon: 'list-plus' },
     { label: 'Back up library (save to Files)', value: 'export', icon: 'download' },
     { label: 'Restore from backup…', value: 'import', icon: 'upload' },
   ], { message: storage });
+  if (choice === 'setlist') newSetlist();
   if (choice === 'export') exportBackup();
   if (choice === 'import') $('#backup-input').click();
 }
@@ -379,20 +535,41 @@ function init() {
 
   $('#crumbs').addEventListener('click', e => {
     const b = e.target.closest('[data-folder]');
-    if (b && (b.dataset.folder || null) !== state.folderId) { state.folderId = b.dataset.folder || null; render(); slide(-1); }
+    if (!b) return;
+    const id = b.dataset.folder || null;
+    if (id !== state.folderId || state.setlistId) { state.folderId = id; state.setlistId = null; render(); slide(-1); }
+  });
+  const go = (folderId, setlistId) => {
+    if (folderId === state.folderId && setlistId === state.setlistId && !state.query) return;
+    state.folderId = folderId; state.setlistId = setlistId;
+    state.query = ''; $('#search').value = '';
+    render(); slide(1);
+  };
+  $('#sidebar').addEventListener('click', e => {
+    if (e.target.closest('[data-new-setlist]')) { newSetlist(); return; }
+    const f = e.target.closest('[data-nav-folder]');
+    if (f) { go(f.dataset.navFolder || null, null); return; }
+    const l = e.target.closest('[data-nav-setlist]');
+    if (l) go(state.folderId, l.dataset.navSetlist);
   });
   $('#grid').addEventListener('click', e => {
     const fm = e.target.closest('[data-folder-menu]');
     if (fm) { e.stopPropagation(); return folderMenu(fm.dataset.folderMenu); }
+    const lm = e.target.closest('[data-setlist-menu]');
+    if (lm) { e.stopPropagation(); return setlistMenu(lm.dataset.setlistMenu); }
     const sm = e.target.closest('[data-song-menu]');
     if (sm) { e.stopPropagation(); return songMenu(sm.dataset.songMenu); }
-    const f = e.target.closest('[data-open-folder]');
-    if (f) { state.folderId = f.dataset.openFolder; state.query = ''; $('#search').value = ''; render(); slide(1); return; }
-    const s = e.target.closest('[data-open-song]');
-    if (s) {
-      const song = state.songs.find(x => x.id === s.dataset.openSong);
-      openViewer(song, reload, state.visibleSongs || []).catch(err => { console.error(err); toast('Could not open: ' + err.message); });
+    if (e.target.closest('[data-play-setlist]')) {
+      const list = state.visibleSongs || [];
+      if (list.length) openSong(list[0], list);
+      return;
     }
+    const f = e.target.closest('[data-open-folder]');
+    if (f) { go(f.dataset.openFolder, null); return; }
+    const l = e.target.closest('[data-open-setlist]');
+    if (l) { go(state.folderId, l.dataset.openSetlist); return; }
+    const s = e.target.closest('[data-open-song]');
+    if (s) openSong(state.songs.find(x => x.id === s.dataset.openSong), state.visibleSongs || []);
   });
 
   initViewer();

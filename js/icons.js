@@ -44,6 +44,11 @@ const P = {
   timer: '<path d="M10 2h4"/><path d="M12 14l3-3"/><circle cx="12" cy="14" r="8"/>',
   'circle-chevron-left': '<circle cx="12" cy="12" r="10"/><path d="m14 16-4-4 4-4"/>',
   'circle-chevron-right': '<circle cx="12" cy="12" r="10"/><path d="m10 8 4 4-4 4"/>',
+  'list-music': '<path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/>',
+  'list-plus': '<path d="M11 12H3"/><path d="M16 6H3"/><path d="M16 18H3"/><path d="M18 9v6"/><path d="M21 12h-6"/>',
+  'arrow-up': '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  'arrow-down': '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+  'circle-minus': '<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/>',
 };
 
 export function icon(name, cls = '') {

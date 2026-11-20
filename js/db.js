@@ -3,9 +3,10 @@
 //   folders: { id, name, parentId (null = root), createdAt }
 //   songs:   { id, title, folderId, createdAt, lastOpened, pageCount, thumb, scroll: {...} }
 //   files:   { id (same as song id), data: ArrayBuffer }   <- PDF bytes kept separately so lists stay fast
+//   setlists: { id, name, songIds: [ordered song ids], createdAt }
 
 const DB_NAME = 'sheet-music';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let dbPromise;
 
 function open() {
@@ -17,6 +18,7 @@ function open() {
       if (!db.objectStoreNames.contains('folders')) db.createObjectStore('folders', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('setlists')) db.createObjectStore('setlists', { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -81,6 +83,13 @@ export async function deleteFolders(ids) {
   const db = await open();
   const tx = db.transaction('folders', 'readwrite');
   for (const id of ids) tx.objectStore('folders').delete(id);
+  return done(tx);
+}
+
+export async function del(store, id) {
+  const db = await open();
+  const tx = db.transaction(store, 'readwrite');
+  tx.objectStore(store).delete(id);
   return done(tx);
 }
 

@@ -10,6 +10,14 @@ An offline sheet-music library for iPad/iPhone that installs from Safari ("Add t
   - **Bar numbers** at the start of each system. These tell it where each bar is on the page, so the scroll stays in time line by line.
   - Scanned PDFs (pictures with no text) are read with OCR (Tesseract).
 - Everything can be adjusted in **Tempo & scroll**, and the settings are saved per song.
+- **Setlists**: songs in the order you play them (e.g. a concert). Add songs with a song's ⋯ button, reorder with Move up / down, and press Start to play through them with next / previous song.
+- **iPad layouts** (Tempo & scroll -> Display):
+  - *Pages* (automatic on iPad): upright shows one page with half-page turns; sideways shows two pages like a book, where the page you finished is replaced by the next one. While playing, a small blue marker shows where the music is.
+  - *Scroll*: one continuous strip; page turns land on the start of a line with room above it.
+  - *Trim page margins* enlarges the music by cutting the white borders.
+  - *Stage light*: Normal, Warm, or Dark (white on black) for dark stages.
+  - Sideways, the library shows a sidebar with all folders and setlists.
+- **Tapping the music**: left third = previous page, right third = next page, middle = show / hide the toolbars (anywhere, if the music fits on one screen). Swipe sideways for the next / previous song.
 - **Scan** printed music with the camera. Each photo is flattened and cleaned to black on white. Per page you can choose **Sharp (traced)** (default: the ink traced into vector outlines, sharp at any zoom like a publisher's PDF, with no notes re-read or changed), **Clean B&W** (the cleaned photo) or **Original colour**.
 
 ## How the scroll speed is calculated

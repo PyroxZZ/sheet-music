@@ -24,6 +24,8 @@
   <!-- Elements with data-icon get the named SVG from js/icons.js prepended at start-up (see hydrateIcons in app.js). -->
 
   <!-- ===== Library ===== -->
+  <!-- Folder tree + setlists, shown beside the library on a wide landscape screen (iPad sideways) -->
+  <nav id="sidebar" aria-label="Folders and setlists"></nav>
   <main id="library">
     <header class="top">
       <div class="titlebar">
@@ -72,6 +74,8 @@
   <!-- ===== Viewer ===== -->
   <section id="viewer" hidden>
     <div id="v-scroll"><div id="v-pages"></div></div>
+    <!-- Pages layout (iPad): whole pages, one or two at a time -->
+    <div id="v-paged"><div id="v-stage"></div></div>
 
     <header class="v-bar v-top">
       <button class="nav-btn" id="v-back" data-icon="chevron-left"><span class="lbl">Library</span></button>
@@ -158,6 +162,31 @@
             <input id="s-marks" class="switch" type="checkbox">
           </label>
         </div>
+
+        <h3 class="s-group-title">Display</h3>
+        <div class="s-group">
+          <label class="s-row pdf-only" data-display>
+            <span class="s-label">Layout</span>
+            <span class="s-select"><select id="s-view" aria-label="Layout">
+              <option value="auto">Automatic</option>
+              <option value="pages">Pages</option>
+              <option value="scroll">Scroll</option>
+            </select><span data-icon="chevron-down"></span></span>
+          </label>
+          <label class="s-row pdf-only" data-display>
+            <span class="s-label">Trim page margins</span>
+            <input id="s-trim" class="switch" type="checkbox">
+          </label>
+          <label class="s-row" data-display>
+            <span class="s-label">Stage light</span>
+            <span class="s-select"><select id="s-stage" aria-label="Stage light">
+              <option value="normal">Normal</option>
+              <option value="warm">Warm</option>
+              <option value="dark">Dark (white on black)</option>
+            </select><span data-icon="chevron-down"></span></span>
+          </label>
+        </div>
+        <p class="s-note pdf-only">Pages shows whole pages: one at a time with half-page turns when upright, two side by side when sideways. Automatic uses Pages on iPad and Scroll on iPhone. Display settings apply to all music.</p>
 
         <div class="s-group pdf-only">
           <button class="s-row s-action" id="s-redetect" data-icon="refresh"><span>Re-analyse PDF</span></button>
