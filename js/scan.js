@@ -1,9 +1,11 @@
 // Photo scanner: photograph sheet music page by page -> find the paper edges -> straighten the page
-// -> clean it to crisp black on white -> combine all pages into one PDF that is stored like any import.
+// -> clean it to crisp black on white -> trace the ink into vector outlines (so it looks and zooms like a
+// real PDF) -> combine all pages into one PDF that is stored like any import.
 //
 // Everything runs on the device (no internet needed).
 import { icon } from './icons.js';
 import { promptText, confirmBox, toast } from './ui.js';
+import { vectorPageContent } from './vectorize.js';
 
 // Resolution limits. iOS Safari refuses canvases above 16.7 M pixels and is stingy with total canvas
 // memory, so we stay well below that: a 12 MP (4032x3024) photo is reduced to 3600x2700 = 9.7 MP
@@ -768,19 +770,20 @@ export async function processPage(img, quad, mode = 'clean', opts = {}) {
   const map = opts.flatten === false ? null : flattenMap(srcGray, SW, SH, hm, w, h, info);
   info.tFlatten = Math.round(performance.now() - T0);
   await tick();
-  let out;
+  let out, gray = null;
   if (mode === 'clean') {
     const g = render(srcGray, SW, SH, 1, hm, w, h, w, h, map || identityMap, true);
     info.tRender = Math.round(performance.now() - T0);
     await tick();
     const c = cleanGray(g, w, h);
+    gray = c;
     out = new Uint8ClampedArray(w * h * 4);
     for (let i = 0, o = 0; i < c.length; i++, o += 4) { out[o] = out[o + 1] = out[o + 2] = c[i]; out[o + 3] = 255; }
   } else {
     out = render(data, SW, SH, 4, hm, w, h, w, h, map || identityMap, true);
   }
   info.tTotal = Math.round(performance.now() - T0);
-  return { data: out, width: w, height: h, info };
+  return { data: out, gray, width: w, height: h, info };
 }
 
 // Straighten the quad into a flat page (perspective, true proportions, and page curl / tilt when staff
@@ -802,7 +805,7 @@ export function enhance(img) {
 }
 
 // =====================================================================================
-// Minimal PDF writer: one JPEG image per page, A4 width.
+// Minimal PDF writer, A4 width: per page either traced vector outlines (clean scans) or a JPEG (colour).
 // =====================================================================================
 
 export function makePdf(pages) {
@@ -820,6 +823,16 @@ export function makePdf(pages) {
   obj(2, () => push(`<< /Type /Pages /Count ${n} /Kids [${pages.map((_, i) => `${pageObj(i)} 0 R`).join(' ')}] >>`));
   pages.forEach((p, i) => {
     const pw = 595.28, ph = +(pw * p.height / p.width).toFixed(2);
+    if (p.vector) { // traced outlines: crisp at any zoom, like a real PDF
+      obj(pageObj(i), () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << >> /Contents ${contentObj(i)} 0 R >>`));
+      obj(contentObj(i), () => {
+        push(`<< /Length ${p.vector.bytes.length}${p.vector.compressed ? ' /Filter /FlateDecode' : ''} >>\nstream\n`);
+        push(p.vector.bytes);
+        push('\nendstream');
+      });
+      obj(imageObj(i), () => push('null'));
+      return;
+    }
     const content = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
     obj(pageObj(i), () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 ${imageObj(i)} 0 R >> >> /Contents ${contentObj(i)} 0 R >>`));
     obj(contentObj(i), () => push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`));
@@ -1161,9 +1174,15 @@ async function cropDone() {
     out.getContext('2d').putImageData(new ImageData(flat.data, flat.width, flat.height), 0, 0);
     const jpeg = await toBlob(out, e.mode === 'clean' ? 0.8 : 0.85);
     free(out);
+    // Clean pages are saved as vector outlines (the JPEG stays as the preview / fallback).
+    let vector = null;
+    if (flat.gray) {
+      try { vector = await vectorPageContent(flat.gray, flat.width, flat.height); }
+      catch (err) { console.warn('Vector trace failed, keeping the image', err); }
+    }
     const page = {
       source: e.source, rotation: e.rotation, quad: e.quad, mode: e.mode,
-      jpeg, width: flat.width, height: flat.height, thumbUrl: URL.createObjectURL(jpeg),
+      jpeg, vector, width: flat.width, height: flat.height, thumbUrl: URL.createObjectURL(jpeg),
     };
     if (e.index >= 0) { URL.revokeObjectURL(S.pages[e.index].thumbUrl); S.pages[e.index] = page; }
     else S.pages.push(page);
@@ -1184,7 +1203,10 @@ async function save() {
   const title = await promptText('Name this music', def, 'Save');
   if (!title) return;
   const pages = [];
-  for (const p of S.pages) pages.push({ jpeg: new Uint8Array(await p.jpeg.arrayBuffer()), width: p.width, height: p.height });
+  for (const p of S.pages) {
+    pages.push(p.vector ? { vector: p.vector, width: p.width, height: p.height }
+      : { jpeg: new Uint8Array(await p.jpeg.arrayBuffer()), width: p.width, height: p.height });
+  }
   const pdf = makePdf(pages);
   const onDone = S.onDone;
   close();
