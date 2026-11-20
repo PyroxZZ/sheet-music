@@ -76,13 +76,13 @@ async function buildPages() {
 function layout() {
   const scroller = $('#v-scroll');
   const width = scroller.clientWidth;
-  let top = 0;
   for (const p of state.pages) {
-    p.w = width; p.h = Math.round(width * p.ratio); p.top = top;
+    p.w = width; p.h = Math.round(width * p.ratio);
     p.el.style.height = p.h + 'px';
-    top += p.h + 8;
     if (p.rendered && p.rendered !== width) freeCanvas(p);
   }
+  // Read real positions (includes the top padding under the toolbar).
+  for (const p of state.pages) p.top = p.el.offsetTop;
   drawMarkers();
   renderVisible();
 }

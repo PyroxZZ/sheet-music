@@ -301,7 +301,16 @@ function init() {
   db.requestPersistence();
   reload();
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(console.warn);
+  if ('serviceWorker' in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('./sw.js').then(reg => reg.update()).catch(console.warn);
+    // A new version was installed: reload into it (but never in the middle of reading music).
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      if (document.body.classList.contains('viewing')) toast('Update ready – it will apply next time you open the app');
+      else location.reload();
+    });
+  }
 
   // Show an install hint in Safari when not yet added to the Home Screen.
   const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;

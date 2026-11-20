@@ -1,6 +1,6 @@
 // Service worker: makes the app open with no internet.
 // Bump VERSION whenever you change any app file so iPads pick up the update.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const APP_CACHE = `app-${VERSION}`;
 const OCR_CACHE = 'ocr-v1'; // big OCR files, cached the first time OCR is used
 
@@ -23,7 +23,10 @@ const APP_FILES = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(APP_FILES)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so a new version really gets the new files.
+  event.waitUntil(caches.open(APP_CACHE)
+    .then(c => c.addAll(APP_FILES.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
