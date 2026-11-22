@@ -18,7 +18,9 @@ export const COLORS = {
   pen: ['#1c1c1e', '#e03131', '#1971c2', '#2f9e44'],
   hl: ['#ffd43b', '#8ce99a', '#ffa8c5', '#74c0fc'],
 };
-const SIZES = { pen: [2.2, 3.6, 6], hl: [12, 20, 30] }; // page units (page width = 1000)
+// Line thickness in page units (page width = 1000): a smooth range per tool, plus 3 presets for a tap.
+const SIZES = { pen: [2.2, 3.6, 6], hl: [12, 20, 30] };
+const RANGE = { pen: [1, 24], hl: [6, 60] };
 const ERASER = 14;
 
 let song = null;        // the open song (PDF only)
@@ -153,6 +155,21 @@ const fingerDraws = () => pref('inkFinger') !== '0';
 const tool = () => pref('inkTool');
 const colorKey = t => (t === 'hl' ? 'inkHlColor' : 'inkPenColor');
 const sizeKey = t => (t === 'hl' ? 'inkHlSize' : 'inkPenSize');
+// Stored as a number; older versions stored a preset index '0' / '1' / '2'.
+function sizeOf(t) {
+  const v = pref(sizeKey(t));
+  if (v === '0' || v === '1' || v === '2') return SIZES[t][+v];
+  const n = parseFloat(v);
+  return n > 0 ? Math.max(RANGE[t][0], Math.min(RANGE[t][1], n)) : SIZES[t][1];
+}
+// Screen pixels per page unit for the music on screen now (layout, zoom and screen size included).
+function screenScale() {
+  for (const svg of document.querySelectorAll('#viewer svg.ink')) {
+    const w = svg.getBoundingClientRect().width, vb = svg.viewBox.baseVal;
+    if (w > 0 && vb && vb.width) return w / vb.width;
+  }
+  return 0.7;
+}
 
 export function setMarkup(on) {
   const v = $('#viewer');
@@ -177,8 +194,8 @@ function renderToolbar() {
     const cur = pref(colorKey(t));
     colors.innerHTML = COLORS[t].map(c => `<button class="mk-color${c === cur ? ' on' : ''}" data-color="${c}" style="--c:${c}" aria-label="Colour"></button>`).join('');
     size.hidden = false;
-    const k = +pref(sizeKey(t)) || 0;
-    size.innerHTML = `<span class="mk-dot" style="--d:${[6, 10, 15][k]}px;--c:${cur}"></span>`;
+    const d = Math.max(4, Math.min(26, sizeOf(t) * screenScale()));
+    size.innerHTML = `<span class="mk-dot" style="--d:${d.toFixed(1)}px;--c:${cur}"></span>`;
   }
   const f = $('#v-markup [data-mk=finger]');
   f.classList.toggle('on', fingerDraws());
@@ -201,7 +218,6 @@ function onToolbar(e) {
     const a = b.dataset.mk;
     if (a === 'undo') undo();
     else if (a === 'redo') redo();
-    else if (a === 'size') setPref(sizeKey(tool()), String(((+pref(sizeKey(tool())) || 0) + 1) % 3));
     else if (a === 'finger') {
       setPref('inkFinger', fingerDraws() ? '0' : '1');
       toast(fingerDraws() ? 'Fingers draw' : 'Fingers turn pages · Apple Pencil draws', { ms: 1800 });
@@ -212,6 +228,62 @@ function onToolbar(e) {
   }
   renderToolbar();
   updateFingerClass();
+}
+
+// ---------- Size: press the size button and slide up (thicker) or down (thinner) ----------
+// A card above the button shows the line as a circle at its real size on the page, with a track.
+// A quick tap steps through thin / medium / thick.
+const TRACK = 200; // px of finger / Pencil travel for the whole range
+
+function sizeToT(t, s) { const [a, b] = RANGE[t]; return Math.sqrt((s - a) / (b - a)); } // finer control when thin
+function tToSize(t, x) { const [a, b] = RANGE[t]; return a + (b - a) * x * x; }
+
+function initSizeSlider() {
+  const btn = $('#v-markup [data-mk=size]'), pop = $('#mk-size-pop');
+  let drag = null;
+  const show = (t, s) => {
+    const scale = screenScale(), d = s * scale, c = pref(colorKey(t));
+    const circle = pop.querySelector('.msp-circle');
+    circle.style.width = circle.style.height = Math.max(2, Math.min(150, d)) + 'px';
+    circle.style.setProperty('--c', c);
+    circle.classList.toggle('hl', t === 'hl');
+    pop.querySelector('.msp-fill').style.height = (sizeToT(t, s) * 100).toFixed(1) + '%';
+    pop.querySelector('.msp-val').textContent = d < 10 ? d.toFixed(1) + ' pt' : Math.round(d) + ' pt';
+  };
+  btn.addEventListener('pointerdown', e => {
+    const t = tool();
+    if (t === 'eraser') return;
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch {}
+    drag = { id: e.pointerId, y: e.clientY, t, t0: sizeToT(t, sizeOf(t)), s: sizeOf(t), moved: false };
+    const r = btn.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(innerWidth - 168, r.left + r.width / 2 - 80)) + 'px';
+    pop.style.bottom = (innerHeight - r.top + 12) + 'px';
+    pop.hidden = false;
+    show(t, drag.s);
+  });
+  btn.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dy = drag.y - e.clientY; // up = positive = thicker
+    if (Math.abs(dy) > 6) drag.moved = true;
+    if (!drag.moved) return;
+    const x = Math.max(0, Math.min(1, drag.t0 + dy / TRACK));
+    drag.s = tToSize(drag.t, x);
+    show(drag.t, drag.s);
+  });
+  const end = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag; drag = null;
+    pop.hidden = true;
+    if (d.moved) setPref(sizeKey(d.t), d.s.toFixed(2));
+    else { // tap: next preset up from the current size (wrapping to thin)
+      const next = SIZES[d.t].find(v => v > d.s + 0.01) ?? SIZES[d.t][0];
+      setPref(sizeKey(d.t), String(next));
+    }
+    renderToolbar();
+  };
+  btn.addEventListener('pointerup', end);
+  btn.addEventListener('pointercancel', end);
 }
 
 // ---------- Pointer input ----------
@@ -268,7 +340,7 @@ function onDown(e) {
   drawing = { pointerId: e.pointerId, type: e.pointerType, page, svg, tool: t, removed: [] };
   if (t === 'eraser') { erase(e); return; }
   drawing.stroke = {
-    t, c: pref(colorKey(t)), s: SIZES[t][+pref(sizeKey(t)) || 0], sp: !isPen, p: [],
+    t, c: pref(colorKey(t)), s: +sizeOf(t).toFixed(2), sp: !isPen, p: [],
   };
   drawing.path = document.createElementNS(NS, 'path');
   svg.appendChild(drawing.path);
@@ -376,5 +448,6 @@ export function initInk(h) {
     if (stylus || (markupOn() && fingerDraws() && e.touches.length === 1)) e.preventDefault();
   }, { passive: false });
   $('#v-markup').addEventListener('click', onToolbar);
+  initSizeSlider();
   window.addEventListener('prefchange', e => { if (/^ink/.test(e.detail) && markupOn()) renderToolbar(); });
 }

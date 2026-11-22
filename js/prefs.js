@@ -15,7 +15,7 @@ const DEFAULTS = {
   inkTool: 'pen',      // markup tool: pen | hl (highlighter) | eraser
   inkPenColor: '#1c1c1e',
   inkHlColor: '#ffd43b',
-  inkPenSize: '1',     // 0 thin, 1 medium, 2 thick
+  inkPenSize: '1',     // line thickness in page units ('0' / '1' / '2' = thin / medium / thick presets)
   inkHlSize: '1',
   inkFinger: 'auto',   // fingers draw in Markup: auto (until an Apple Pencil is used) | 1 | 0
 };

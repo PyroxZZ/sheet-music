@@ -720,8 +720,9 @@ function showChrome(show) {
 }
 
 // ---------- Zoom (pinch on the sheet; the toolbars stay where they are) ----------
-// Pages layout: the page area is scaled and panned (one finger pans when zoomed in), and redrawn
-// sharper after the pinch. Scroll layout: the pages are laid out wider, so normal scrolling pans.
+// Two fingers zoom and move the sheet; one finger only taps (turn pages, toolbars) while zoomed.
+// Pages layout: the page area is scaled and panned, and redrawn sharper after the pinch.
+// Scroll layout: the pages are laid out wider and the scroll position follows the fingers.
 const ZMAX = 4;
 
 function resetZoom() {
@@ -771,21 +772,17 @@ function initZoom() {
   const onSheet = e => state && state.kind === 'pdf' && !locked && e.target.closest && e.target.closest('#v-scroll, #v-paged');
   const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
   const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-  let pinch = null, pan = null;
+  let pinch = null;
 
   v.addEventListener('touchstart', e => {
     if (!onSheet(e)) return;
     if (e.touches.length === 2) {
       const [a, b] = e.touches, c = mid(a, b);
       pinch = { d0: dist(a, b), c0: c, c, z0: state.zoom, tx0: state.tx, ty0: state.ty, z: state.zoom, active: false };
-      pan = null;
       if (!state.paged) {
         const pr = $('#v-pages').getBoundingClientRect();
         $('#v-pages').style.transformOrigin = `${c.x - pr.left}px ${c.y - pr.top}px`;
       }
-    } else if (e.touches.length === 1 && state.paged && state.zoom > 1 && !v.classList.contains('finger-draws')) {
-      const t = e.touches[0];
-      pan = { x: t.clientX, y: t.clientY, tx0: state.tx, ty0: state.ty };
     }
   }, { passive: false });
 
@@ -798,11 +795,6 @@ function initZoom() {
       pinch.active = true; pinch.c = c; pinch.z = z;
       if (state.paged) zoomPaged(z, pinch.z0, pinch.tx0, pinch.ty0, pinch.c0.x, pinch.c0.y, c.x, c.y);
       else $('#v-pages').style.transform = `translate(${c.x - pinch.c0.x}px, ${c.y - pinch.c0.y}px) scale(${z / pinch.z0})`;
-    } else if (pan && e.touches.length === 1) {
-      e.preventDefault();
-      const t = e.touches[0];
-      state.tx = pan.tx0 + t.clientX - pan.x; state.ty = pan.ty0 + t.clientY - pan.y;
-      applyPagedZoom();
     }
   }, { passive: false });
 
@@ -820,7 +812,6 @@ function initZoom() {
         }
       }
     }
-    if (pan && e.touches.length === 0) pan = null;
   };
   v.addEventListener('touchend', end);
   v.addEventListener('touchcancel', end);

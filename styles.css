@@ -913,4 +913,23 @@ svg.ink { position: absolute; z-index: 1; left: 0; top: 0; width: 100%; height: 
 #v-scroll, #v-paged { touch-action: pan-x pan-y; }
 #viewer.is-zoomed #v-paged { overflow: hidden; }
 #v-stage { transform-origin: 0 0; }
-#viewer.is-zoomed.is-paged #v-paged { touch-action: none; }
+#viewer.is-zoomed #v-scroll, #viewer.is-zoomed #v-paged { touch-action: none; } /* zoomed: one finger only taps */
+
+/* Size slider (press the size button in Markup and slide up / down) */
+[data-mk=size] { touch-action: none; }
+#mk-size-pop {
+  position: fixed; z-index: 6; width: 160px; padding: 12px; border-radius: 20px; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  background: var(--bar-bg); color: var(--text); box-shadow: 0 8px 30px rgba(0, 0, 0, .3), 0 0 0 .5px var(--border-strong);
+  -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+}
+#mk-size-pop[hidden] { display: none; }
+.msp-preview { width: 136px; height: 136px; display: grid; place-items: center; border-radius: 14px; background: #fff; }
+.msp-circle {
+  display: block; border-radius: 50%; background: var(--c);
+  box-shadow: 0 0 0 1.5px rgba(10, 102, 216, .9), 0 0 0 4px rgba(10, 102, 216, .18); /* outline: shows the edge */
+}
+.msp-circle.hl { opacity: .45; border-radius: 3px; }
+.msp-track { position: relative; width: 10px; height: 70px; border-radius: 5px; background: var(--fill-strong); overflow: hidden; }
+.msp-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); border-radius: 5px; }
+.msp-val { font: 600 var(--fs-foot)/1 var(--font); color: var(--muted); font-variant-numeric: tabular-nums; }
