@@ -858,10 +858,10 @@ input.switch:checked::before { transform: translateX(20px); }
 html { touch-action: manipulation; }
 
 /* Markup: markings layer over each page */
-svg.ink { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; mix-blend-mode: multiply; }
+svg.ink { position: absolute; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
 .pv-page svg.ink { width: auto; height: auto; } /* sized inline to the full page */
-.ink-hl { fill-opacity: .4; }
-#viewer.stage-dark svg.ink { filter: invert(1) hue-rotate(180deg); mix-blend-mode: normal; }
+.ink-hl { fill-opacity: .35; }
+#viewer.stage-dark svg.ink { filter: invert(1) hue-rotate(180deg); }
 #viewer.stage-warm svg.ink { filter: sepia(.2); }
 #v-scroll, #v-paged { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 #viewer.finger-draws #v-scroll, #viewer.finger-draws #v-paged { touch-action: none; }
