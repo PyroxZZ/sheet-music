@@ -86,7 +86,10 @@
         <div class="v-titlewrap"><div id="v-title"></div><div id="v-pos"></div></div>
         <button class="nav-btn icon-only" id="v-next" data-icon="circle-chevron-right" aria-label="Next song"></button>
       </div>
-      <button class="nav-btn" id="v-gear" data-icon="sliders" aria-label="Tempo and scroll settings"><span class="lbl">Tempo &amp; scroll</span></button>
+      <div class="v-right">
+        <button class="nav-btn icon-only pdf-only" id="v-markup-btn" data-icon="pen-line" aria-label="Markup"></button>
+        <button class="nav-btn" id="v-gear" data-icon="sliders" aria-label="Tempo and scroll settings"><span class="lbl">Tempo &amp; scroll</span></button>
+      </div>
     </header>
 
     <footer class="v-bar v-bottom">
@@ -110,6 +113,24 @@
     </footer>
 
     <div id="v-count" hidden></div>
+
+    <!-- Markup toolbar (pencil / highlighter / eraser), shown instead of the bottom bar -->
+    <div id="v-markup" class="mk-bar" hidden role="toolbar" aria-label="Markup">
+      <button class="mk-btn" data-mk="prev" data-icon="chevron-left" aria-label="Previous page"></button>
+      <button class="mk-btn" data-mk="undo" data-icon="undo" aria-label="Undo"></button>
+      <button class="mk-btn" data-mk="redo" data-icon="redo" aria-label="Redo"></button>
+      <span class="mk-sep"></span>
+      <button class="mk-btn mk-tool" data-tool="pen" data-icon="pen" aria-label="Pen"></button>
+      <button class="mk-btn mk-tool" data-tool="hl" data-icon="highlighter" aria-label="Highlighter"></button>
+      <button class="mk-btn mk-tool" data-tool="eraser" data-icon="eraser" aria-label="Eraser"></button>
+      <span class="mk-sep"></span>
+      <span class="mk-colors"></span>
+      <button class="mk-btn" data-mk="size" aria-label="Line thickness"></button>
+      <span class="mk-sep"></span>
+      <button class="mk-btn" data-mk="finger" data-icon="hand" aria-label="Draw with finger"></button>
+      <button class="mk-done" data-mk="done">Done</button>
+      <button class="mk-btn" data-mk="next" data-icon="chevron-right" aria-label="Next page"></button>
+    </div>
     <!-- Shown while taps are locked -->
     <div id="v-lockbadge" aria-live="polite"><span data-icon="lock"></span><span class="lb-text">Locked · hold the music to unlock</span></div>
 

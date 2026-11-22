@@ -12,6 +12,12 @@ const DEFAULTS = {
   pageList: '1',       // page list down the left side of the music
   playBtn: '0',        // auto-scroll button on the music's bottom bar
   readLine: '0.45',    // where the music being played sits while scrolling (fraction of the screen)
+  inkTool: 'pen',      // markup tool: pen | hl (highlighter) | eraser
+  inkPenColor: '#1c1c1e',
+  inkHlColor: '#ffd43b',
+  inkPenSize: '1',     // 0 thin, 1 medium, 2 thick
+  inkHlSize: '1',
+  inkFinger: 'auto',   // fingers draw in Markup: auto (until an Apple Pencil is used) | 1 | 0
 };
 
 export function pref(k) {

@@ -22,6 +22,7 @@ import { loadPdf } from './pdf.js';
 import { analyzePdf } from './detect.js';
 import { toast, esc } from './ui.js';
 import { icon } from './icons.js';
+import { initInk, inkOpen, inkClose, inkSvg, setMarkup } from './ink.js';
 import { pref, setPref } from './prefs.js';
 
 // Where the music being played sits on the screen while scrolling (Settings: higher / middle / lower).
@@ -76,6 +77,7 @@ export async function openViewer(song, onClose, playlist = [], direction = 0, at
     paged: false, pv: { c: 0, half: false }, pcache: new Map(), shown: new Set(),
   };
   applyStage();
+  inkOpen(song);
   updateSongNav();
   if (!wasOpen) animateIn(root, 'v-enter');
   else if (direction) animateIn($('#v-pages'), direction > 0 ? 'v-next' : 'v-prev');
@@ -102,6 +104,7 @@ function animateIn(el, cls) {
 }
 
 function teardown() {
+  inkClose();
   if (!state) return;
   stop();
   for (const p of state.pages) freeCanvas(p);
@@ -177,12 +180,14 @@ async function buildPdfPages() {
     const el = document.createElement('div');
     el.className = 'v-page';
     wrap.appendChild(el);
+    const rec = { index: i, W: vp.width, H: vp.height };
     const pi = info && info[i - 1];
     const crop = trim && pi ? pi.crop : [0, 0, 1, 1];
     const ratio = ((crop[3] - crop[1]) * vp.height) / ((crop[2] - crop[0]) * vp.width);
     // Blank bands (between systems) in this page's own 0..1 range: used to place half-page splits.
     const gaps = pi ? pi.gaps.map(g => (g - crop[1]) / (crop[3] - crop[1])).filter(g => g > 0 && g < 1) : [];
     st.pages.push({ index: i, el, W: vp.width, H: vp.height, crop, ratio, gaps, canvas: null, rendered: 0, task: null });
+    el.appendChild(inkSvg({ ...rec, crop })); // markings layer over the page
   }
   buildStrip();
   setMode();
@@ -716,6 +721,7 @@ function showChrome(show) {
 let locked = false;
 
 function setLock(on) {
+  if (on) setMarkup(false);
   locked = on;
   const v = $('#viewer');
   v.classList.toggle('is-locked', on);
@@ -904,6 +910,7 @@ async function drawPaged() {
     box.style.cssText = `left:${it.x}px;top:${it.y}px;width:${it.w}px;height:${it.clip != null ? it.clip : it.h}px`;
     const cv = canvases[k];
     if (cv) { cv.style.width = it.w + 'px'; cv.style.height = it.h + 'px'; box.appendChild(cv); }
+    box.appendChild(inkSvg(st.pages[it.i], it.w, it.h));
     frag.appendChild(box);
   });
   const cursor = document.createElement('div');
@@ -1181,6 +1188,8 @@ export function initViewer() {
   });
   $('#s-close').addEventListener('click', () => { $('#v-settings').hidden = true; });
   $('#v-lock').addEventListener('click', () => setLock(true));
+  $('#v-markup-btn').addEventListener('click', () => setMarkup(!$('#viewer').classList.contains('markup')));
+  initInk({ turnPage: dir => { if (state) turnWithinSong(dir); } });
   $('#v-light').addEventListener('click', () => {
     const next = STAGE[pref('stage')]?.next || 'warm';
     setPref('stage', next);

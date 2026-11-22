@@ -853,3 +853,56 @@ input.switch:checked::before { transform: translateX(20px); }
 #viewer.is-locked #v-paged { touch-action: none; }
 #viewer.is-locked #v-strip { pointer-events: none; }
 #viewer.is-locked #v-scroll, #viewer.is-locked #v-paged { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+/* No double-tap zoom anywhere (also removes the tap delay); pinch still works */
+html { touch-action: manipulation; }
+
+/* Markup: markings layer over each page */
+svg.ink { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; mix-blend-mode: multiply; }
+.pv-page svg.ink { width: auto; height: auto; } /* sized inline to the full page */
+.ink-hl { fill-opacity: .4; }
+#viewer.stage-dark svg.ink { filter: invert(1) hue-rotate(180deg); mix-blend-mode: normal; }
+#viewer.stage-warm svg.ink { filter: sepia(.2); }
+#v-scroll, #v-paged { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#viewer.finger-draws #v-scroll, #viewer.finger-draws #v-paged { touch-action: none; }
+
+/* Top bar right: Markup + Tempo & scroll */
+.v-right { display: flex; align-items: center; gap: 2px; }
+#v-markup-btn .ic { width: 22px; height: 22px; }
+#viewer.markup #v-markup-btn { color: var(--accent-text); background: var(--accent); border-radius: 50%; }
+@media (min-width: 701px) { .v-songnav { max-width: calc(100% - 2 * 230px); } }
+
+/* Markup toolbar (floating, replaces the bottom bar) */
+#viewer.markup .v-bottom { display: none; }
+#viewer.markup #v-lockbadge { display: none; }
+.mk-bar {
+  position: absolute; z-index: 3; left: 50%; bottom: calc(var(--safe-bottom) + 14px); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 2px; max-width: calc(100% - 16px); overflow-x: auto; scrollbar-width: none;
+  padding: 6px; border-radius: 18px; background: var(--bar-bg); color: var(--text);
+  -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .28), 0 0 0 .5px var(--border-strong);
+  animation: mk-in var(--dur) var(--ease-out);
+}
+.mk-bar[hidden] { display: none; }
+.mk-bar::-webkit-scrollbar { display: none; }
+@keyframes mk-in { from { opacity: 0; transform: translate(-50%, 16px); } }
+.mk-btn {
+  flex: none; width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 12px;
+  background: none; color: var(--text); cursor: pointer; transition: background-color var(--dur-fast), opacity var(--dur-fast);
+}
+.mk-btn .ic { width: 22px; height: 22px; stroke-width: 2; }
+.mk-btn:active { background: var(--fill-strong); }
+.mk-btn:disabled { opacity: .3; pointer-events: none; }
+.mk-btn.on { background: var(--accent); color: var(--accent-text); }
+.mk-btn[hidden] { display: none; }
+.mk-sep { flex: none; width: 1px; height: 24px; margin: 0 4px; background: var(--border-strong); }
+.mk-colors { display: flex; gap: 2px; }
+.mk-colors:empty { display: none; }
+.mk-color { flex: none; width: 34px; height: 42px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; }
+.mk-color::before { content: ""; width: 24px; height: 24px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(127, 127, 127, .45); }
+.mk-color.on::before { box-shadow: 0 0 0 2px var(--bar-bg), 0 0 0 4px var(--accent); }
+.mk-dot { width: var(--d); height: var(--d); border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px rgba(127, 127, 127, .45); }
+.mk-done {
+  flex: none; height: 42px; padding: 0 16px; margin-left: 4px; border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--accent); color: var(--accent-text); font: 600 var(--fs-sub)/1 var(--font);
+}

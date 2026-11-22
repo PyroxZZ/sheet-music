@@ -22,6 +22,8 @@ An offline sheet-music library for iPad/iPhone that installs from Safari ("Add t
 - **Find in music** (magnifier in the bar under the music): lists the songs inside a big PDF (from its bookmarks, or the big titles at the top of pages) and searches any words printed in it; tap a result to jump there. Scanned PDFs are read with OCR the first time.
 - **Library search** also looks inside the music, so a song title finds the book it is in.
 - **Stage light button** (sun / sunset / moon in the bar under the music) switches Normal, Warm and Dark.
+- **Markup** (pen button at the top, or just start writing with Apple Pencil): pen, highlighter and eraser with colours and three thicknesses, like Markup in the iPad Preview app. Two-finger tap = undo, three-finger tap = redo. Once an Apple Pencil is used, fingers turn pages and only the Pencil draws (the hand button switches finger drawing back on; with it on, scroll with two fingers). Markings are saved with the song and included in backups.
+- Double-tap zoom is switched off so quick taps never zoom the page.
 - **Lock taps** (padlock in the bar under the music): taps, swipes and dragging on the music do nothing, so nothing turns or opens by accident while performing. Auto-scroll keeps going. Hold the music for a moment to unlock.
 - **Import photos**: choosing pictures with Import opens them in the scanner (straighten, clean, save as PDF).
 - **Tapping the music**: left third = previous page, right third = next page, middle = show / hide the toolbars (anywhere, if the music fits on one screen). Swipe sideways for the next / previous song.
