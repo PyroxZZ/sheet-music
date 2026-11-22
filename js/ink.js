@@ -376,7 +376,7 @@ function erase(e) {
 function onMove(e) {
   if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
     const t = touches.get(e.pointerId);
-    if (gesture && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 12) gesture.moved = true; // below the zoom / move thresholds
+    if (gesture && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 8) gesture.moved = true; // below the zoom / move thresholds
   }
   if (!drawing || e.pointerId !== drawing.pointerId) return;
   e.stopPropagation();
