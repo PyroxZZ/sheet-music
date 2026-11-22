@@ -309,6 +309,7 @@ function onDown(e) {
   if (!song || !onMusic(e)) return;
   const v = $('#viewer');
   if (e.pointerType === 'touch') {
+    if (e.isPrimary) { touches.clear(); gesture = null; } // first finger of a new touch: start clean
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (touches.size === 1) gesture = { max: 1, start: performance.now(), moved: false };
     else if (gesture) gesture.max = Math.max(gesture.max, touches.size);
@@ -375,7 +376,7 @@ function erase(e) {
 function onMove(e) {
   if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
     const t = touches.get(e.pointerId);
-    if (gesture && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 18) gesture.moved = true;
+    if (gesture && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 12) gesture.moved = true; // below the zoom / move thresholds
   }
   if (!drawing || e.pointerId !== drawing.pointerId) return;
   e.stopPropagation();

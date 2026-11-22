@@ -778,7 +778,8 @@ function initZoom() {
     if (!onSheet(e)) return;
     if (e.touches.length === 2) {
       const [a, b] = e.touches, c = mid(a, b);
-      pinch = { d0: dist(a, b), c0: c, c, z0: state.zoom, tx0: state.tx, ty0: state.ty, z: state.zoom, active: false };
+      // mode: decided by the first clear movement, then kept: 'zoom' (fingers spread / pinch) or 'pan'.
+      pinch = { d0: dist(a, b), c0: c, c, z0: state.zoom, tx0: state.tx, ty0: state.ty, z: state.zoom, mode: null };
       if (!state.paged) {
         const pr = $('#v-pages').getBoundingClientRect();
         $('#v-pages').style.transformOrigin = `${c.x - pr.left}px ${c.y - pr.top}px`;
@@ -789,19 +790,31 @@ function initZoom() {
   v.addEventListener('touchmove', e => {
     if (pinch && e.touches.length >= 2) {
       e.preventDefault(); // no browser zoom or scroll: the sheet follows the fingers
-      const [a, b] = e.touches, c = mid(a, b);
-      const z = Math.max(1, Math.min(ZMAX, pinch.z0 * dist(a, b) / pinch.d0));
-      if (!pinch.active && Math.abs(dist(a, b) - pinch.d0) < 10 && Math.hypot(c.x - pinch.c0.x, c.y - pinch.c0.y) < 10) return;
-      pinch.active = true; pinch.c = c; pinch.z = z;
-      if (state.paged) zoomPaged(z, pinch.z0, pinch.tx0, pinch.ty0, pinch.c0.x, pinch.c0.y, c.x, c.y);
-      else $('#v-pages').style.transform = `translate(${c.x - pinch.c0.x}px, ${c.y - pinch.c0.y}px) scale(${z / pinch.z0})`;
+      const [a, b] = e.touches, c = mid(a, b), d = dist(a, b);
+      // Zoom OR move, never both. Small movements decide nothing, so a two-finger tap (undo) stays a tap.
+      if (!pinch.mode) {
+        if (Math.abs(d - pinch.d0) > 30) pinch.mode = 'zoom';
+        else if (Math.hypot(c.x - pinch.c0.x, c.y - pinch.c0.y) > 20) pinch.mode = 'pan';
+        else return;
+      }
+      if (pinch.mode === 'zoom') {
+        pinch.z = Math.max(1, Math.min(ZMAX, pinch.z0 * d / pinch.d0));
+        pinch.c = pinch.c0; // zoom around where the fingers started
+      } else {
+        pinch.z = pinch.z0;
+        pinch.c = c;
+      }
+      if (state.paged) zoomPaged(pinch.z, pinch.z0, pinch.tx0, pinch.ty0, pinch.c0.x, pinch.c0.y, pinch.c.x, pinch.c.y);
+      else $('#v-pages').style.transform = `translate(${pinch.c.x - pinch.c0.x}px, ${pinch.c.y - pinch.c0.y}px) scale(${pinch.z / pinch.z0})`;
     }
   }, { passive: false });
 
+  // Finish once every finger is up: redrawing the page while a finger still rests on it would lose
+  // that finger's events (and with them two-finger undo).
   const end = e => {
-    if (pinch && e.touches.length < 2) {
+    if (pinch && e.touches.length === 0) {
       const p = pinch; pinch = null;
-      if (p.active && state) {
+      if (p.mode && state) {
         const z = p.z < 1.08 ? 1 : p.z; // pinched back out: snap to the normal size
         if (state.paged) {
           zoomPaged(z, p.z0, p.tx0, p.ty0, p.c0.x, p.c0.y, p.c.x, p.c.y);
