@@ -75,6 +75,7 @@ export async function openViewer(song, onClose, playlist = [], direction = 0, at
     playing: false, t: 0, lastTs: 0, raf: 0,
     countIn: 0, wake: null, userTouching: false, curBar: null,
     paged: false, pv: { c: 0, half: false }, pcache: new Map(), shown: new Set(),
+    zoom: 1, tx: 0, ty: 0, // sheet zoom (pinch) and, in Pages layout, the pan
   };
   applyStage();
   inkOpen(song);
@@ -114,7 +115,9 @@ function teardown() {
   $('#v-pages').innerHTML = '';
   $('#v-stage').innerHTML = '';
   $('#v-strip').innerHTML = '';
-  $('#viewer').classList.remove('is-paged', 'has-strip', 'can-spread');
+  $('#v-stage').style.transform = '';
+  $('#v-pages').style.width = $('#v-pages').style.transform = '';
+  $('#viewer').classList.remove('is-paged', 'has-strip', 'can-spread', 'is-zoomed');
   $('#v-pages').hidden = false;
   $('#v-settings').hidden = true;
   $('#v-find').hidden = true;
@@ -327,6 +330,7 @@ const cropY = (p, y) => Math.max(0, Math.min(1, (y - p.crop[1]) / (p.crop[3] - p
 
 // Pick Scroll or Pages layout and lay out. Called on open and whenever the layout setting or screen changes.
 function setMode() {
+  resetZoom();
   const paged = wantPaged();
   state.paged = paged;
   $('#viewer').classList.toggle('is-paged', paged);
@@ -353,7 +357,8 @@ function layout() {
     return;
   }
   const scroller = $('#v-scroll');
-  const width = scroller.clientWidth;
+  const width = Math.round(scroller.clientWidth * state.zoom);
+  $('#v-pages').style.width = state.zoom > 1 ? width + 'px' : '';
   for (const p of state.pages) {
     p.w = width; p.h = Math.round(width * p.ratio);
     p.el.style.height = p.h + 'px';
@@ -373,9 +378,9 @@ function freeCanvas(p) {
 }
 
 // Draw the shown (trimmed) part of a page at a CSS size. Returns { canvas, task }.
-function drawPage(st, p, cssW, cssH) {
+function drawPage(st, p, cssW, cssH, quality = 1) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  let k = dpr;
+  let k = dpr * quality; // quality > 1: zoomed in (Pages layout), draw sharper
   const maxPixels = 12e6; // iOS limits canvas size; stay well under ~16M pixels
   if (cssW * cssH * k * k > maxPixels) k = Math.sqrt(maxPixels / (cssW * cssH));
   const scale = cssW * k / ((p.crop[2] - p.crop[0]) * p.W);
@@ -714,6 +719,130 @@ function showChrome(show) {
   $('#viewer').classList.toggle('chrome-hidden', !show);
 }
 
+// ---------- Zoom (pinch on the sheet; the toolbars stay where they are) ----------
+// Pages layout: the page area is scaled and panned (one finger pans when zoomed in), and redrawn
+// sharper after the pinch. Scroll layout: the pages are laid out wider, so normal scrolling pans.
+const ZMAX = 4;
+
+function resetZoom() {
+  if (!state) return;
+  state.zoom = 1; state.tx = state.ty = 0;
+  $('#v-stage').style.transform = '';
+  $('#v-pages').style.width = $('#v-pages').style.transform = '';
+  $('#viewer').classList.remove('is-zoomed');
+}
+
+function applyPagedZoom() {
+  const st = $('#v-stage'), W = st.clientWidth, H = st.clientHeight, z = state.zoom;
+  state.tx = Math.min(0, Math.max(W - W * z, state.tx));
+  state.ty = Math.min(0, Math.max(H - H * z, state.ty));
+  st.style.transform = z > 1 ? `translate(${state.tx}px, ${state.ty}px) scale(${z})` : '';
+  $('#viewer').classList.toggle('is-zoomed', z > 1);
+}
+
+// Pages layout: zoom to z so the sheet point that was under (fx, fy) at zoom z0 / pan (tx0, ty0)
+// ends up under (cx, cy).
+function zoomPaged(z, z0, tx0, ty0, fx, fy, cx, cy) {
+  const r = $('#v-stage').getBoundingClientRect();
+  const left = r.left - state.tx, top = r.top - state.ty; // untransformed origin
+  const ux = (fx - left - tx0) / z0, uy = (fy - top - ty0) / z0;
+  state.zoom = z;
+  state.tx = cx - left - ux * z;
+  state.ty = cy - top - uy * z;
+  applyPagedZoom();
+}
+
+// Scroll layout: lay the pages out at zoom z, keeping the point under (fx, fy) under (cx, cy).
+function zoomScroll(z, fx, fy, cx, cy) {
+  const sc = $('#v-scroll'), r = sc.getBoundingClientRect(), z0 = state.zoom;
+  const pad = state.pages[0] ? state.pages[0].top : 0; // top padding (doesn't scale)
+  const x = sc.scrollLeft + fx - r.left, y = sc.scrollTop + fy - r.top;
+  state.zoom = z;
+  $('#viewer').classList.toggle('is-zoomed', z > 1);
+  layout();
+  const f = z / z0;
+  sc.scrollLeft = x * f - (cx - r.left);
+  sc.scrollTop = pad + (y - pad) * f - (cy - r.top);
+  renderVisible();
+}
+
+function initZoom() {
+  const v = $('#viewer');
+  const onSheet = e => state && state.kind === 'pdf' && !locked && e.target.closest && e.target.closest('#v-scroll, #v-paged');
+  const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+  const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  let pinch = null, pan = null;
+
+  v.addEventListener('touchstart', e => {
+    if (!onSheet(e)) return;
+    if (e.touches.length === 2) {
+      const [a, b] = e.touches, c = mid(a, b);
+      pinch = { d0: dist(a, b), c0: c, c, z0: state.zoom, tx0: state.tx, ty0: state.ty, z: state.zoom, active: false };
+      pan = null;
+      if (!state.paged) {
+        const pr = $('#v-pages').getBoundingClientRect();
+        $('#v-pages').style.transformOrigin = `${c.x - pr.left}px ${c.y - pr.top}px`;
+      }
+    } else if (e.touches.length === 1 && state.paged && state.zoom > 1 && !v.classList.contains('finger-draws')) {
+      const t = e.touches[0];
+      pan = { x: t.clientX, y: t.clientY, tx0: state.tx, ty0: state.ty };
+    }
+  }, { passive: false });
+
+  v.addEventListener('touchmove', e => {
+    if (pinch && e.touches.length >= 2) {
+      e.preventDefault(); // no browser zoom or scroll: the sheet follows the fingers
+      const [a, b] = e.touches, c = mid(a, b);
+      const z = Math.max(1, Math.min(ZMAX, pinch.z0 * dist(a, b) / pinch.d0));
+      if (!pinch.active && Math.abs(dist(a, b) - pinch.d0) < 10 && Math.hypot(c.x - pinch.c0.x, c.y - pinch.c0.y) < 10) return;
+      pinch.active = true; pinch.c = c; pinch.z = z;
+      if (state.paged) zoomPaged(z, pinch.z0, pinch.tx0, pinch.ty0, pinch.c0.x, pinch.c0.y, c.x, c.y);
+      else $('#v-pages').style.transform = `translate(${c.x - pinch.c0.x}px, ${c.y - pinch.c0.y}px) scale(${z / pinch.z0})`;
+    } else if (pan && e.touches.length === 1) {
+      e.preventDefault();
+      const t = e.touches[0];
+      state.tx = pan.tx0 + t.clientX - pan.x; state.ty = pan.ty0 + t.clientY - pan.y;
+      applyPagedZoom();
+    }
+  }, { passive: false });
+
+  const end = e => {
+    if (pinch && e.touches.length < 2) {
+      const p = pinch; pinch = null;
+      if (p.active && state) {
+        const z = p.z < 1.08 ? 1 : p.z; // pinched back out: snap to the normal size
+        if (state.paged) {
+          zoomPaged(z, p.z0, p.tx0, p.ty0, p.c0.x, p.c0.y, p.c.x, p.c.y);
+          drawPaged(); // redraw at the new sharpness
+        } else {
+          $('#v-pages').style.transform = '';
+          zoomScroll(z, p.c0.x, p.c0.y, p.c.x, p.c.y);
+        }
+      }
+    }
+    if (pan && e.touches.length === 0) pan = null;
+  };
+  v.addEventListener('touchend', end);
+  v.addEventListener('touchcancel', end);
+
+  // Safari's own pinch zoom of the whole app (toolbars included): never while reading music.
+  for (const type of ['gesturestart', 'gesturechange']) {
+    document.addEventListener(type, e => { if (document.body.classList.contains('viewing')) e.preventDefault(); }, { passive: false });
+  }
+
+  // Computer: Ctrl + scroll wheel (or trackpad pinch) zooms the sheet.
+  let sharpTimer = 0;
+  v.addEventListener('wheel', e => {
+    if (!e.ctrlKey || !onSheet(e)) return;
+    e.preventDefault();
+    const z = Math.max(1, Math.min(ZMAX, state.zoom * Math.exp(-e.deltaY / 300)));
+    if (state.paged) {
+      zoomPaged(z, state.zoom, state.tx, state.ty, e.clientX, e.clientY, e.clientX, e.clientY);
+      clearTimeout(sharpTimer); sharpTimer = setTimeout(() => state && drawPaged(), 250);
+    } else zoomScroll(z, e.clientX, e.clientY, e.clientX, e.clientY);
+  }, { passive: false });
+}
+
 // ---------- Lock taps (for performing) ----------
 // Locked: taps, swipes and dragging on the music do nothing, so a sleeve or a stray touch can't
 // turn the page or open a menu. Auto-scroll keeps running. Hold anywhere on the music to unlock.
@@ -851,12 +980,14 @@ function splitOf(i, asTrigger = false) {
 const fitBox = (ratio, maxW, maxH) => { const w = Math.min(maxW, maxH / ratio); return { w, h: w * ratio }; };
 
 // Rendered page canvases, reused across turns (keyed by page and size).
+const zoomQuality = () => Math.min(3, Math.ceil(state.zoom * 2) / 2);
+const cacheKey = (i, w, h) => `${i}:${Math.round(w)}x${Math.round(h)}@${zoomQuality()}`;
 function pageCanvas(i, w, h) {
-  const key = `${i}:${Math.round(w)}x${Math.round(h)}`;
+  const key = cacheKey(i, w, h);
   let e = state.pcache.get(key);
   if (!e) {
     const st = state;
-    const { canvas, task } = drawPage(st, st.pages[i], w, h);
+    const { canvas, task } = drawPage(st, st.pages[i], w, h, zoomQuality());
     e = { i, canvas, ready: task.then(t => t.promise).then(() => canvas).catch(() => null) };
     state.pcache.set(key, e);
   }
@@ -924,14 +1055,14 @@ async function drawPaged() {
   if (k && st.playing) placeCursor(k);
   updateStrip();
   // Get the next turn ready in the background, and drop pages that are far away.
-  const keep = new Set(items.map(it => `${it.i}:${Math.round(it.w)}x${Math.round(it.h)}`));
+  const keep = new Set(items.map(it => cacheKey(it.i, it.w, it.h)));
   const ahead = spreadOn() ? [c + 2] : [c + 1];
   for (const i of ahead) {
     if (i >= n) continue;
     const b = spreadOn() ? fitBox(st.pages[i].ratio, (W - 16) / 2, H) : fitBox(st.pages[i].ratio, W, H);
     const e = pageCanvas(i, b.w, b.h);
-    keep.add(`${i}:${Math.round(b.w)}x${Math.round(b.h)}`);
-    if (!spreadOn() && half) keep.add(`${i}:${Math.round(items[0].w)}x${Math.round(items[0].w * st.pages[i].ratio)}`);
+    keep.add(cacheKey(i, b.w, b.h));
+    if (!spreadOn() && half) keep.add(cacheKey(i, items[0].w, items[0].w * st.pages[i].ratio));
     void e;
   }
   trimCache(keep);
@@ -968,6 +1099,7 @@ function pagedTurn(dir) {
   else if (c > 0) { c--; half = true; }
   if (c === state.pv.c && half === state.pv.half) return false;
   state.pv = { c, half };
+  if (state.zoom > 1) { state.ty = 0; applyPagedZoom(); } // zoomed in: keep the zoom, start at the top
   setTimeForView();
   drawPaged();
   updateStatus();
@@ -1190,6 +1322,7 @@ export function initViewer() {
   $('#v-lock').addEventListener('click', () => setLock(true));
   $('#v-markup-btn').addEventListener('click', () => setMarkup(!$('#viewer').classList.contains('markup')));
   initInk({ turnPage: dir => { if (state) turnWithinSong(dir); } });
+  initZoom();
   $('#v-light').addEventListener('click', () => {
     const next = STAGE[pref('stage')]?.next || 'warm';
     setPref('stage', next);
@@ -1271,7 +1404,7 @@ export function initViewer() {
     cancelHold();
     if (!state || locked) return;
     const dx = e.clientX - downX, dy = e.clientY - downY, dt = Date.now() - downAt;
-    if (dt < 600 && Math.abs(dx) > 80 && Math.abs(dy) < 50) { switchSong(dx < 0 ? 1 : -1); return; }
+    if (dt < 600 && Math.abs(dx) > 80 && Math.abs(dy) < 50 && state.zoom === 1) { switchSong(dx < 0 ? 1 : -1); return; }
     if (dt > 300 || Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
     if (!$('#v-settings').hidden) { $('#v-settings').hidden = true; return; }
     if (!$('#v-find').hidden) { $('#v-find').hidden = true; return; }

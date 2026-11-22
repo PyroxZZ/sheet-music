@@ -518,11 +518,13 @@ async function appMenu() {
   } catch {}
   const choice = await menu('Library', [
     { label: 'Settings', value: 'settings', icon: 'sliders' },
+    { label: 'Check for updates', value: 'update', icon: 'refresh' },
     { label: 'New setlist', value: 'setlist', icon: 'list-plus' },
     { label: 'Back up library (save to Files)', value: 'export', icon: 'download' },
     { label: 'Restore from backup…', value: 'import', icon: 'upload' },
   ], { message: storage });
   if (choice === 'settings') import('./settings.js').then(m => m.openSettings());
+  if (choice === 'update') import('./update.js').then(m => m.updateApp());
   if (choice === 'setlist') newSetlist();
   if (choice === 'export') exportBackup();
   if (choice === 'import') $('#backup-input').click();

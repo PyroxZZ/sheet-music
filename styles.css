@@ -906,3 +906,11 @@ svg.ink { position: absolute; z-index: 1; left: 0; top: 0; width: 100%; height: 
   flex: none; height: 42px; padding: 0 16px; margin-left: 4px; border: 0; border-radius: 12px; cursor: pointer;
   background: var(--accent); color: var(--accent-text); font: 600 var(--fs-sub)/1 var(--font);
 }
+
+.s-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Sheet zoom: the browser never zooms the music area itself (pinch is handled by the app) */
+#v-scroll, #v-paged { touch-action: pan-x pan-y; }
+#viewer.is-zoomed #v-paged { overflow: hidden; }
+#v-stage { transform-origin: 0 0; }
+#viewer.is-zoomed.is-paged #v-paged { touch-action: none; }

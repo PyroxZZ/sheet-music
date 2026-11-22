@@ -3,6 +3,7 @@
 import { dialog } from './ui.js';
 import { icon } from './icons.js';
 import { pref, setPref } from './prefs.js';
+import { updateApp, appVersion } from './update.js';
 
 const select = (key, options) => `
   <span class="s-select"><select data-pref="${key}" aria-label="${key}">
@@ -38,10 +39,18 @@ export function openSettings() {
           ${row('Play button on the music', toggle('playBtn'), 'Off: start auto-scroll from Tempo &amp; scroll. Handy if you mostly turn pages yourself.')}
           ${row('Music being played sits', select('readLine', [['0.3', 'Higher up'], ['0.45', 'In the middle'], ['0.55', 'Lower down']]), 'Scrolling waits until the music reaches this point, so what you are playing is not jammed at the top.')}
         </div>
+
+        <h3 class="s-group-title">App</h3>
+        <div class="s-group">
+          <div class="s-row"><span class="s-label">Version</span><span class="s-value" data-version>…</span></div>
+          <button class="s-row s-action" data-update>${icon('refresh')}<span>Check for updates</span></button>
+        </div>
       </div>
     </div>`, (d, finish) => {
     d.classList.add('dlg-settings');
     d.querySelector('[data-done]').onclick = () => finish();
+    d.querySelector('[data-update]').onclick = () => { finish(); updateApp(); };
+    appVersion().then(v => { d.querySelector('[data-version]').textContent = v || 'not installed'; });
     d.addEventListener('change', e => {
       const el = e.target.closest('[data-pref]');
       if (el) setPref(el.dataset.pref, el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value);

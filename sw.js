@@ -1,6 +1,6 @@
 // Service worker: makes the app open with no internet.
 // Bump VERSION whenever you change any app file so iPads pick up the update.
-const VERSION = 'v17';
+const VERSION = 'v18';
 const APP_CACHE = `app-${VERSION}`;
 const OCR_CACHE = 'ocr-v1'; // big OCR files, cached the first time OCR is used
 const LIB_CACHE = 'lib-verovio-6.4.1'; // music engraving library for MusicXML (7 MB)
@@ -19,6 +19,7 @@ const APP_FILES = [
   './js/settings.js',
   './js/find.js',
   './js/ink.js',
+  './js/update.js',
   './vendor/perfect-freehand/perfect-freehand.mjs',
   './js/score.js',
   './js/app.js',
@@ -50,6 +51,18 @@ self.addEventListener('activate', event => {
     }
     await self.clients.claim();
   })());
+});
+
+// Messages from the app: 'version', and 'refresh' (Check for updates: re-download every app file now).
+self.addEventListener('message', event => {
+  const port = event.ports && event.ports[0];
+  const reply = v => port ? port.postMessage(v) : event.source && event.source.postMessage(v);
+  if (event.data === 'version') reply(VERSION);
+  if (event.data === 'refresh') {
+    event.waitUntil(caches.open(APP_CACHE)
+      .then(c => c.addAll(APP_FILES.map(u => new Request(u, { cache: 'reload' })))) // all or nothing
+      .then(() => reply('ok'), () => reply('failed')));
+  }
 });
 
 self.addEventListener('fetch', event => {

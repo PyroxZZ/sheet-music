@@ -304,11 +304,6 @@ function onMove(e) {
   if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
     const t = touches.get(e.pointerId);
     if (gesture && Math.hypot(e.clientX - t.x, e.clientY - t.y) > 18) gesture.moved = true;
-    // Two fingers while fingers draw: scroll the music (one finger is busy drawing).
-    if (touches.size === 2 && markupOn() && fingerDraws() && !$('#viewer').classList.contains('is-paged')) {
-      $('#v-scroll').scrollTop -= (e.clientY - t.y) / 2;
-    }
-    t.x = e.clientX; t.y = e.clientY;
   }
   if (!drawing || e.pointerId !== drawing.pointerId) return;
   e.stopPropagation();
